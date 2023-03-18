@@ -12,7 +12,7 @@ oranc --listen "{LISTEN_ADDRESS}:{LISTEN_PORT}"
 
 ## Usage
 
-Try [oranc.li7g.com](https://oranc.li7g.com) and [upload.oranc.li7g.com](https://upload.oranc.li7g.com) (for upload).
+Try [oranc.li7g.com](https://oranc.li7g.com) and [oranc-upload.li7g.com](https://oranc-upload.li7g.com) (for upload).
 
 It's better to self-host an instance. If you do so, please replace all `oranc.li7g.com` below with your instance.
 
