@@ -1,0 +1,29 @@
+[package]
+name = "oranc"
+authors = [ "Lin Yinfeng <lin.yinfeng@outlook.com>" ]
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+description = """
+OCI Registry As Nix Cache
+"""
+
+[dependencies]
+warp = "*"
+hyper = "*"
+# wait for a release containing krustlet/oci-distribution#57
+# https://github.com/krustlet/oci-distribution/pull/57
+oci-distribution = { git = "https://github.com/krustlet/oci-distribution" }
+clap = { version = "*", features = [ "cargo", "derive" ] }
+tokio = {version = "*", features = [ "macros", "rt-multi-thread" ] }
+tokio-util = {version = "*", features = [ ] }
+log = "*"
+pretty_env_logger = "*"
+thiserror = "*"
+http = "*"
+regex = "*"
+lazy_static = "*"
+data-encoding = "*"
+async-tar = "*"
+maplit = "*"
+bytes = "*"
