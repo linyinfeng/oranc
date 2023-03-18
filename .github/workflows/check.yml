@@ -11,7 +11,7 @@ jobs:
     - name: Checkout
       uses: actions/checkout@main
       with:
-        token: '${{ secrets.PAT_FOR_AUTOMATED_UPDATE }}'
+        token: '${{ secrets.GITHUB_TOKEN }}'
     - name: Install nix
       uses: cachix/install-nix-action@master
       with:
