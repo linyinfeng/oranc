@@ -1,4 +1,4 @@
-use std::string::FromUtf8Error;
+use std::{path::PathBuf, string::FromUtf8Error};
 
 use http::StatusCode;
 use oci_distribution::{errors::OciDistributionError, Reference};
@@ -26,6 +26,12 @@ pub enum Error {
     NoLayerAnnotationKey(String),
     #[error("reference not found: {0}")]
     ReferenceNotFound(Reference),
+    #[error("invalid path: {0:?}")]
+    InvalidPath(PathBuf),
+    #[error("reqwest error: {0:?}")]
+    Reqwest(reqwest::Error),
+    #[error("upstream error: {0:?}")]
+    Upstream(reqwest::Response),
 }
 
 impl Error {
@@ -41,6 +47,9 @@ impl Error {
             Error::NoLayerAnnotations => StatusCode::BAD_REQUEST,
             Error::NoLayerAnnotationKey(_) => StatusCode::BAD_REQUEST,
             Error::ReferenceNotFound(_) => StatusCode::NOT_FOUND,
+            Error::InvalidPath(_) => StatusCode::BAD_REQUEST,
+            Error::Reqwest(_) => StatusCode::INTERNAL_SERVER_ERROR,
+            Error::Upstream(_) => StatusCode::INTERNAL_SERVER_ERROR,
         }
     }
 }

@@ -10,6 +10,8 @@ Simply run,
 oranc --listen "{LISTEN_ADDRESS}:{LISTEN_PORT}"
 ```
 
+Run `oranc --help` for more options.
+
 ## Usage
 
 Try [oranc.li7g.com](https://oranc.li7g.com) and [oranc-upload.li7g.com](https://oranc-upload.li7g.com) (for upload).

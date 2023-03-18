@@ -88,8 +88,7 @@
         devShells.default = pkgs.mkShell {
           inputsFrom = lib.attrValues self'.checks;
           packages = with pkgs; [
-            cargo
-            rustc
+            rustup
             rust-analyzer
           ];
         };

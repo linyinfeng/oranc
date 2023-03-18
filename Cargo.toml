@@ -10,6 +10,7 @@ OCI Registry As Nix Cache
 
 [dependencies]
 warp = "*"
+reqwest = "*"
 hyper = "*"
 # wait for a release containing krustlet/oci-distribution#57
 # https://github.com/krustlet/oci-distribution/pull/57
@@ -22,7 +23,7 @@ pretty_env_logger = "*"
 thiserror = "*"
 http = "*"
 regex = "*"
-lazy_static = "*"
+once_cell = "*"
 data-encoding = "*"
 async-tar = "*"
 maplit = "*"
