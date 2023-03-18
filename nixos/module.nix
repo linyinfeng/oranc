@@ -24,6 +24,20 @@ in {
           Socket address to listen on.
         '';
       };
+      upstreams = lib.mkOption {
+        type = with lib.types; listOf str;
+        default = ["https://cache.nixos.org"];
+        description = ''
+          Upstream caches.
+        '';
+      };
+      ignoreUpstream = lib.mkOption {
+        type = lib.types.str;
+        default = "nix-cache-info";
+        description = ''
+          Ignore upstream check for keys matching this pattern.
+        '';
+      };
       log = lib.mkOption {
         type = lib.types.str;
         default = "oranc=info";
@@ -36,7 +50,11 @@ in {
   config = lib.mkIf cfg.enable {
     systemd.services.oranc = {
       script = ''
-        ${cfg.package}/bin/oranc --listen "${cfg.listen}"
+        ${cfg.package}/bin/oranc --listen "${cfg.listen}" \
+          ${
+          lib.concatMapStringsSep "\n" (u: "--upstream \"${u}\" \\") cfg.upstreams
+        }
+          --ignore-upstream "${cfg.ignoreUpstream}"
       '';
       serviceConfig = {
         DynamicUser = true;

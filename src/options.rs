@@ -8,8 +8,8 @@ use std::net::SocketAddr;
 pub struct Options {
     #[arg(short, long, default_value = "[::]:8080")]
     pub listen: SocketAddr,
-    #[arg(short, long, default_value = "https://cache.nixos.org")]
+    #[arg(short, long, value_name = "URL")]
     pub upstream: Vec<Url>,
-    #[arg(short, long, default_value = "nix-cache-info")]
+    #[arg(short, long, value_name = "PATTERN", default_value = "nix-cache-info")]
     pub ignore_upstream: Regex,
 }

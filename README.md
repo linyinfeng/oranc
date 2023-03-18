@@ -7,7 +7,7 @@ OCI Registry As Nix Cache.
 Simply run,
 
 ```bash
-oranc --listen "{LISTEN_ADDRESS}:{LISTEN_PORT}"
+oranc --listen "{LISTEN_ADDRESS}:{LISTEN_PORT}" --upstream "https://cache.nixos.org"
 ```
 
 Run `oranc --help` for more options.
