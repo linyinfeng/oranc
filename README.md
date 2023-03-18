@@ -56,7 +56,7 @@ It's better to self-host an instance. If you do so, please replace all `oranc.li
    In `nix.conf`:
 
    ```text
-   substituters = https://oranc.li7g.com/ghcr.io/{USERNAME}/{PACKAGE_NAME}
+   substituters = https://oranc.li7g.com/{OCI_REGISTRY}/{REPOSITORY_NAME_PART_1}/{REPOSITORY_NAME_PART_2}
 
    trusted-public-keys = {PUBLIC_KEY}
    ```
