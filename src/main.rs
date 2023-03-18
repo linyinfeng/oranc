@@ -146,7 +146,7 @@ async fn check_upstream(ctx: &Context, key: &str) -> Result<Option<Url>, Rejecti
         return Ok(None);
     }
     for upstream in &ctx.options.upstream {
-        let url = upstream_url(&upstream, key)?;
+        let url = upstream_url(upstream, key)?;
         let response = ctx
             .http_client
             .head(url.clone())
