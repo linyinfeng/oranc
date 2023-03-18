@@ -49,7 +49,7 @@ It's better to self-host an instance. If you do so, please replace all `oranc.li
 
    For example, `s3://cache?endpoint=https://oranc.li7g.com/ghcr.io/linyinfeng` uploads to `ghcr.io/linyinfeng/cache`.
 
-   Use <https://upload.oranc.li7g.com> if the size of `nar` files exceeded Cloudflare's limit.
+   Use <https://oranc-upload.li7g.com> if the size of `nar` files exceeded Cloudflare's limit.
 
 5. Use your OCI registry as a cache.
 
