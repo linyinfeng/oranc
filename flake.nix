@@ -88,15 +88,17 @@
               ExposedPorts = {
                 "8080/tcp" = {};
               };
-              Labels = {
-                "org.opencontainers.image.title" = "oranc";
-                "org.opencontainers.image.description" = "OCI Registry As Nix Cache";
-                "org.opencontainers.image.url" = "https://github.com/linyinfeng/oranc";
-                "org.opencontainers.image.source" = "https://github.com/linyinfeng/oranc";
-                "org.opencontainers.image.licenses" = "MIT";
-              } // lib.optionalAttrs (self.sourceInfo ? rev) {
-                "org.opencontainers.image.revision" = self.sourceInfo.rev;
-              };
+              Labels =
+                {
+                  "org.opencontainers.image.title" = "oranc";
+                  "org.opencontainers.image.description" = "OCI Registry As Nix Cache";
+                  "org.opencontainers.image.url" = "https://github.com/linyinfeng/oranc";
+                  "org.opencontainers.image.source" = "https://github.com/linyinfeng/oranc";
+                  "org.opencontainers.image.licenses" = "MIT";
+                }
+                // lib.optionalAttrs (self.sourceInfo ? rev) {
+                  "org.opencontainers.image.revision" = self.sourceInfo.rev;
+                };
             };
           };
         };
