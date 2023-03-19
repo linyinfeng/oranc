@@ -40,6 +40,7 @@ jobs:
         if [ -z $(git status --porcelain) ]; then
           echo "clean, skip..."
         else
+          git add --all
           git commit --message "Cargo update"
         fi
     - name: Nix flake check
