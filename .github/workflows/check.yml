@@ -53,9 +53,8 @@ jobs:
         signingKey: '${{ secrets.CACHIX_SIGNING_KEY }}'
     - name: Upload docker image
       run: |
-        tag=$(nix eval --raw .#dockerImage.imageTag)
         image_archive=$(nix build .#dockerImage --no-link --print-out-paths)
         skopeo copy \
           --dest-creds "${{ github.actor }}:${{ secrets.GITHUB_TOKEN }}" \
           "docker-archive:$image_archive" \
-          "docker://ghcr.io/linyinfeng/oranc:$tag"
+          "docker://ghcr.io/linyinfeng/oranc"

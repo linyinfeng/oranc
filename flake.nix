@@ -69,6 +69,7 @@
           default = config.packages.oranc;
           dockerImage = pkgs.dockerTools.buildImage {
             name = "oranc";
+            tag = self.sourceInfo.rev or null;
             config = {
               Entrypoint = ["${pkgs.tini}/bin/tini" "--"];
               Cmd = let
