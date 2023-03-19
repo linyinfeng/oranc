@@ -27,6 +27,7 @@
   outputs = inputs @ {flake-parts, ...}:
     flake-parts.lib.mkFlake {inherit inputs;}
     ({
+      self,
       inputs,
       lib,
       ...
@@ -66,10 +67,34 @@
         packages = {
           oranc = craneLib.buildPackage commonArgs;
           default = config.packages.oranc;
+          dockerImage = pkgs.dockerTools.buildImage {
+            name = "oranc";
+            tag = self.sourceInfo.rev or "latest";
+            config = {
+              Entrypoint = ["${pkgs.tini}/bin/tini" "--"];
+              Cmd = let
+                start = pkgs.writeShellScript "start-oranc" ''
+                  exec ${config.packages.oranc}/bin/oranc \
+                    --listen "[::]:8080" \
+                    --upstream "$UPSTREAM" \
+                    --ignore-upstream "$IGNORE_UPSTREAM" \
+                    "$@"
+                '';
+              in ["${start}"];
+              Env = [
+                "RUST_LOG=oranc=info"
+                "UPSTREAM=https://cache.nixos.org"
+                "IGNORE_UPSTREAM=nix-cache-info"
+              ];
+              ExposedPorts = {
+                "8080/tcp" = {};
+              };
+            };
+          };
         };
         overlayAttrs.oranc = config.packages.oranc;
         checks = {
-          package = self'.packages.oranc;
+          inherit (self'.packages) oranc dockerImage;
           doc = craneLib.cargoDoc commonArgs;
           fmt = craneLib.cargoFmt {inherit src;};
           nextest = craneLib.cargoNextest commonArgs;
