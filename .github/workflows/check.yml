@@ -58,4 +58,4 @@ jobs:
         skopeo copy \
           --dest-creds "${{ github.actor }}:${{ secrets.GITHUB_TOKEN }}" \
           "docker-archive:$image_archive" \
-          "docker://ghcr.io/linyinfeng/oranc/$tag"
+          "docker://ghcr.io/linyinfeng/oranc:$tag"
