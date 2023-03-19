@@ -75,7 +75,7 @@
               Cmd = let
                 start = pkgs.writeShellScript "start-oranc" ''
                   exec ${config.packages.oranc}/bin/oranc \
-                    --listen "[::]:8080" \
+                    --listen "[::]:80" \
                     --upstream "$UPSTREAM" \
                     --ignore-upstream "$IGNORE_UPSTREAM" \
                     "$@"
@@ -87,7 +87,7 @@
                 "IGNORE_UPSTREAM=nix-cache-info"
               ];
               ExposedPorts = {
-                "8080/tcp" = {};
+                "80/tcp" = {};
               };
               Labels =
                 {
