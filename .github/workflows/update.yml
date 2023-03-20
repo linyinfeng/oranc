@@ -10,23 +10,23 @@ on:
 jobs:
   update:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    services:
+      oranc:
+        image: ghcr.io/linyinfeng/oranc
     steps:
-    - name: Checkout repository
+    - name: Checkout
       uses: actions/checkout@main
-      with:
-        ref: main
-        token: '${{ secrets.PAT_FOR_AUTOMATED_UPDATE }}'
     - name: Install nix
       uses: cachix/install-nix-action@master
       with:
-        extra_nix_config: |
-          experimental-features = nix-command flakes
-          access-tokens = github.com=${{ secrets.GITHUB_TOKEN }}
-    - name: Setup cachix
-      uses: cachix/cachix-action@master
+        github_access_token: '${{ secrets.GITHUB_TOKEN }}'
+    - uses: linyinfeng/oranc-action@main
       with:
-        name: linyinfeng
-        signingKey: '${{ secrets.CACHIX_SIGNING_KEY }}'
+        orancContainer: '${{ job.services.oranc.id }}'
+        signingKey: '${{ secrets.NIX_SINGING_KEY }}'
     - name: Git config
       run: |
         git config --global user.email "nano@linyinfeng.com"
