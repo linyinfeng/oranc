@@ -7,54 +7,59 @@ on:
 jobs:
   check:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    services:
+      oranc:
+        image: ghcr.io/linyinfeng/oranc
     steps:
     - name: Checkout
       uses: actions/checkout@main
-      with:
-        token: '${{ secrets.GITHUB_TOKEN }}'
     - name: Install nix
       uses: cachix/install-nix-action@master
       with:
-        nix_path: nixpkgs=channel:nixos-unstable
-        extra_nix_config: |
-          experimental-features = nix-command flakes
-          access-tokens = github.com=${{ secrets.GITHUB_TOKEN }}
-    - name: Setup cachix
-      uses: cachix/cachix-action@master
+        github_access_token: '${{ secrets.GITHUB_TOKEN }}'
+    - uses: linyinfeng/oranc-action@main
       with:
-        name: linyinfeng
-        signingKey: '${{ secrets.CACHIX_SIGNING_KEY }}'
+        orancContainer: '${{ job.services.oranc.id }}'
+        signingKey: '${{ secrets.NIX_SINGING_KEY }}'
     - name: Nix flake check
-      run: |
-        nix flake check
+      run: nix flake check
 
   upload-docker-image:
-    if: ${{ github.actor == 'linyinfeng' && github.ref == 'refs/heads/main' }}
+    if: ${{ github.event_name == 'push' }}
     runs-on: ubuntu-latest
     needs: check
     permissions:
+      contents: read
       packages: write
+    services:
+      oranc:
+        image: ghcr.io/linyinfeng/oranc
     steps:
     - name: Checkout
       uses: actions/checkout@main
-      with:
-        token: '${{ secrets.GITHUB_TOKEN }}'
     - name: Install nix
       uses: cachix/install-nix-action@master
       with:
-        nix_path: nixpkgs=channel:nixos-unstable
-        extra_nix_config: |
-          experimental-features = nix-command flakes
-          access-tokens = github.com=${{ secrets.GITHUB_TOKEN }}
-    - name: Setup cachix
-      uses: cachix/cachix-action@master
+        github_access_token: '${{ secrets.GITHUB_TOKEN }}'
+    - uses: linyinfeng/oranc-action@main
       with:
-        name: linyinfeng
-        signingKey: '${{ secrets.CACHIX_SIGNING_KEY }}'
+        orancContainer: '${{ job.services.oranc.id }}'
+        signingKey: '${{ secrets.NIX_SINGING_KEY }}'
     - name: Upload docker image
       run: |
         image_archive=$(nix build .#dockerImage --no-link --print-out-paths)
-        skopeo copy \
-          --dest-creds "${{ github.actor }}:${{ secrets.GITHUB_TOKEN }}" \
-          "docker-archive:$image_archive" \
-          "docker://ghcr.io/linyinfeng/oranc"
+        function push_to {
+          echo "push to '$1'"
+          skopeo copy \
+            --dest-creds "${{ github.actor }}:${{ secrets.GITHUB_TOKEN }}" \
+            "docker-archive:$image_archive" \
+            "$1"
+        }
+        tag=$(nix eval .#dockerImage.imageTag --raw)
+        push_to "docker://ghcr.io/linyinfeng/oranc:$tag"
+        if [ "${{ github.ref }}" = "refs/heads/main" ]; then
+          push_to "docker://ghcr.io/linyinfeng/oranc:latest"
+        fi
