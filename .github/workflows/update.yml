@@ -19,6 +19,9 @@ jobs:
     steps:
     - name: Checkout
       uses: actions/checkout@main
+      with:
+        ref: main
+        token: '${{ secrets.PAT_FOR_AUTOMATED_UPDATE }}'
     - name: Install nix
       uses: cachix/install-nix-action@master
       with:
