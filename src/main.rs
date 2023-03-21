@@ -91,7 +91,7 @@ async fn get(
     (key, reference): (String, Reference),
     auth: RegistryAuth,
 ) -> Result<Response<Body>, Rejection> {
-    match check_upstream(&ctx, &key).await? {
+    match check_upstream(&ctx, &key, &auth).await? {
         None => {
             log::info!("get: key = {key}, reference = {reference:?}");
             let mut client: Client = Default::default();
@@ -121,7 +121,7 @@ async fn head(
     (key, reference): (String, Reference),
     auth: RegistryAuth,
 ) -> Result<Response<Body>, Rejection> {
-    match check_upstream(&ctx, &key).await? {
+    match check_upstream(&ctx, &key, &auth).await? {
         None => {
             log::info!("head: key = {key}, reference = {reference:?}");
             let mut client: Client = Default::default();
@@ -141,7 +141,18 @@ async fn head(
     }
 }
 
-async fn check_upstream(ctx: &Context, key: &str) -> Result<Option<Url>, Rejection> {
+async fn check_upstream(
+    ctx: &Context,
+    key: &str,
+    auth: &RegistryAuth,
+) -> Result<Option<Url>, Rejection> {
+    if let RegistryAuth::Anonymous = auth {
+        // skip check upstream caches if `--upstream-anonymous` is off
+        if !ctx.options.upstream_anonymous {
+            log::debug!("skipped checking upstream for key: '{}'", key);
+            return Ok(None);
+        }
+    }
     if ctx.options.ignore_upstream.is_match(key) {
         return Ok(None);
     }
