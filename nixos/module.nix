@@ -45,6 +45,13 @@ in {
           Log configuration in RUST_LOG format.
         '';
       };
+      extraArgs = lib.mkOption {
+        type = with lib.types; listOf str;
+        default = [];
+        description = ''
+          Extra command-line arguments pass to oranc.
+        '';
+      };
     };
   };
   config = lib.mkIf cfg.enable {
@@ -54,7 +61,7 @@ in {
           ${
           lib.concatMapStringsSep "\n" (u: "--upstream \"${u}\" \\") cfg.upstreams
         }
-          --ignore-upstream "${cfg.ignoreUpstream}"
+          --ignore-upstream "${cfg.ignoreUpstream}" ${lib.escapeShellArgs cfg.extraArgs}
       '';
       serviceConfig = {
         DynamicUser = true;
