@@ -12,4 +12,6 @@ pub struct Options {
     pub upstream: Vec<Url>,
     #[arg(short, long, value_name = "PATTERN", default_value = "nix-cache-info")]
     pub ignore_upstream: Regex,
+    #[arg(long)]
+    pub upstream_anonymous: bool,
 }
