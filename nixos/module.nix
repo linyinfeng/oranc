@@ -57,7 +57,7 @@ in {
   config = lib.mkIf cfg.enable {
     systemd.services.oranc = {
       script = ''
-        ${cfg.package}/bin/oranc --listen "${cfg.listen}" \
+        ${cfg.package}/bin/oranc server --listen "${cfg.listen}" \
           ${
           lib.concatMapStringsSep "\n" (u: "--upstream \"${u}\" \\") cfg.upstreams
         }

@@ -80,7 +80,7 @@
               Entrypoint = ["${pkgs.tini}/bin/tini" "--"];
               Cmd = let
                 start = pkgs.writeShellScript "start-oranc" ''
-                  exec ${config.packages.oranc}/bin/oranc \
+                  exec ${config.packages.oranc}/bin/oranc server \
                     --listen "[::]:80" \
                     --upstream "$UPSTREAM" \
                     --ignore-upstream "$IGNORE_UPSTREAM" \
