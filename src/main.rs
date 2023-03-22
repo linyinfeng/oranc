@@ -19,6 +19,7 @@ use oci_distribution::config::Architecture;
 use oci_distribution::config::ConfigFile;
 use oci_distribution::config::Os;
 use oci_distribution::config::Rootfs;
+use oci_distribution::manifest::OciImageManifest;
 use oci_distribution::Client;
 use oci_distribution::{secrets::RegistryAuth, Reference};
 use once_cell::sync::Lazy;
@@ -243,9 +244,13 @@ async fn put(
     let config = Config::oci_v1_from_config_file(config_file, config_annotations)
         .map_err(Error::OciDistribution)?;
 
-    let image_manifest = None; // auto generate manifest
+    let image_annotations = hashmap! {
+        "com.linyinfeng.oranc.key".to_string() => key.clone(),
+        "org.opencontainers.image.description".to_string() => key.clone(),
+    };
+    let image_manifest = OciImageManifest::build(&layers, &config, Some(image_annotations));
     client
-        .push(&reference, &layers, config, &auth, image_manifest)
+        .push(&reference, &layers, config, &auth, Some(image_manifest))
         .await
         .map_err(Error::OciDistribution)?;
     Ok(Response::builder()
