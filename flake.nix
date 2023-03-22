@@ -84,13 +84,14 @@
                     --listen "[::]:80" \
                     --upstream "$UPSTREAM" \
                     --ignore-upstream "$IGNORE_UPSTREAM" \
-                    "$@"
+                    $EXTRA_ARGS "$@"
                 '';
               in ["${start}"];
               Env = [
                 "RUST_LOG=oranc=info"
                 "UPSTREAM=https://cache.nixos.org"
                 "IGNORE_UPSTREAM=nix-cache-info"
+                "EXTRA_ARGS="
               ];
               ExposedPorts = {
                 "80/tcp" = {};
