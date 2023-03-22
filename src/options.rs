@@ -15,6 +15,7 @@ pub enum Commands {
     Server(ServerOptions),
     #[command(subcommand)]
     Tag(TagCommands),
+    Push(PushOptions),
 }
 
 #[derive(Clone, Debug, Parser)]
@@ -37,4 +38,31 @@ pub enum TagCommands {
     Encode { key: String },
     #[command(about = "Decode a tag to key")]
     Decode { tag: String },
+}
+
+#[derive(Clone, Debug, Parser)]
+#[command(about = "Push store paths to OCI Registry")]
+pub struct PushOptions {
+    #[arg(long, default_value = "ghcr.io")]
+    pub registry: String,
+    #[arg(long)]
+    pub repository: String,
+    #[command(subcommand)]
+    pub subcommand: Option<PushSubcommands>,
+}
+
+#[derive(Clone, Debug, Subcommand)]
+pub enum PushSubcommands {
+    Initialize(InitializeOptions),
+}
+
+#[derive(Clone, Debug, Parser)]
+#[command(about = "Initialize nix-cache-info")]
+pub struct InitializeOptions {
+    #[arg(short, long, default_value = "/nix/store")]
+    pub store_dir: String,
+    #[arg(short, long, default_value = "41")]
+    pub priority: u32,
+    #[arg(short, long)]
+    pub no_mass_query: bool,
 }
