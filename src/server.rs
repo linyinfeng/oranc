@@ -1,7 +1,10 @@
 use std::path::PathBuf;
 
-use crate::convert::key_to_tag;
 use crate::error::Error;
+use crate::registry;
+use crate::registry::build_reference;
+use crate::registry::get_layer_info;
+use crate::registry::LayerInfo;
 use bytes::Bytes;
 
 use data_encoding::BASE64;
@@ -9,14 +12,7 @@ use http::header;
 use http::Response;
 use http::StatusCode;
 use hyper::Body;
-use maplit::hashmap;
-use oci_distribution::client::Config;
-use oci_distribution::client::ImageLayer;
-use oci_distribution::config::Architecture;
-use oci_distribution::config::ConfigFile;
-use oci_distribution::config::Os;
-use oci_distribution::config::Rootfs;
-use oci_distribution::manifest::OciImageManifest;
+
 use oci_distribution::Client;
 use oci_distribution::{secrets::RegistryAuth, Reference};
 use once_cell::sync::Lazy;
@@ -27,8 +23,6 @@ use warp::{Filter, Rejection, Reply};
 
 use crate::options::ServerOptions;
 
-const LAYER_MEDIA_TYPE: &str = "application/octet-stream";
-const CONTENT_TYPE_ANNOTATION: &str = "com.linyinfeng.oranc.content.type";
 const OK_RESPONSE_BODY: &str = "<_/>";
 const NO_SUCH_KEY_RESPONSE_BODY: &str = "<Error><Code>NoSuchKey</Code></Error>";
 
@@ -40,49 +34,6 @@ static DECODED_PATTERN: Lazy<Regex> = Lazy::new(|| Regex::new("^([^:]+):(.+)$").
 struct ServerContext {
     options: ServerOptions,
     http_client: reqwest::Client,
-}
-
-#[derive(Debug, Clone)]
-struct LayerInfo {
-    digest: String,
-    content_type: String,
-}
-
-async fn get_layer_info(
-    client: &mut Client,
-    reference: &Reference,
-    auth: &RegistryAuth,
-) -> Result<Option<LayerInfo>, Rejection> {
-    let (manifest, _hash) = match client.pull_image_manifest(reference, auth).await {
-        Ok(t) => t,
-        Err(e) => {
-            log::trace!("failed to get layer info: {e}");
-            return Ok(None);
-        }
-    };
-    match manifest.layers.len() {
-        1 => (),
-        other => return Err(Error::InvalidLayerCount(other).into()),
-    }
-    let layer_manifest = &manifest.layers[0];
-    if layer_manifest.media_type != LAYER_MEDIA_TYPE {
-        return Err(Error::InvalidLayerMediaType(layer_manifest.media_type.clone()).into());
-    }
-    let annotations = match &layer_manifest.annotations {
-        Some(a) => a,
-        None => return Err(Error::NoLayerAnnotations.into()),
-    };
-    let content_type = match annotations.get(CONTENT_TYPE_ANNOTATION) {
-        Some(a) => a,
-        None => {
-            return Err(Error::NoLayerAnnotationKey(CONTENT_TYPE_ANNOTATION.to_string()).into())
-        }
-    };
-    let info = LayerInfo {
-        digest: layer_manifest.digest.clone(),
-        content_type: content_type.clone(),
-    };
-    Ok(Some(info))
 }
 
 async fn get(
@@ -206,51 +157,15 @@ async fn put(
     log::info!("put: key = {key}, reference = {reference:?}");
 
     let mut client: Client = Default::default();
-
-    let content_type = match optional_content_type {
-        None => "application/octet-stream".to_string(),
-        Some(c) => c,
-    };
-    let layer_annotations = hashmap! {
-        CONTENT_TYPE_ANNOTATION.to_string() => content_type,
-    };
-    let layer = ImageLayer::new(
+    registry::put(
+        &mut client,
+        &reference,
+        &auth,
+        &key,
+        optional_content_type,
         body.to_vec(),
-        LAYER_MEDIA_TYPE.to_string(),
-        Some(layer_annotations),
-    );
-    let layer_digest = layer.sha256_digest();
-    let layers = vec![layer];
-
-    let rootfs = Rootfs {
-        r#type: "layers".to_string(),
-        diff_ids: vec![
-            // just use layer digest
-            layer_digest,
-        ],
-    };
-    let config_file = ConfigFile {
-        created: None,
-        author: None,
-        architecture: Architecture::None,
-        os: Os::None,
-        config: None,
-        rootfs,
-        history: vec![],
-    };
-    let config_annotations = None;
-    let config = Config::oci_v1_from_config_file(config_file, config_annotations)
-        .map_err(Error::OciDistribution)?;
-
-    let image_annotations = hashmap! {
-        "com.linyinfeng.oranc.key".to_string() => key.clone(),
-        "org.opencontainers.image.description".to_string() => key.clone(),
-    };
-    let image_manifest = OciImageManifest::build(&layers, &config, Some(image_annotations));
-    client
-        .push(&reference, &layers, config, &auth, Some(image_manifest))
-        .await
-        .map_err(Error::OciDistribution)?;
+    )
+    .await?;
     Ok(Response::builder()
         .status(StatusCode::OK)
         .body(OK_RESPONSE_BODY)
@@ -292,12 +207,7 @@ fn reference() -> impl Filter<Extract = ((String, Reference),), Error = Rejectio
             |registry, rep1: String, rep2: String, tail: warp::path::Tail| {
                 let repository = format!("{rep1}/{rep2}");
                 let key = tail.as_str();
-                let tag = key_to_tag(key);
-                log::debug!("key '{key}' to tag '{tag}'");
-                (
-                    key.to_string(),
-                    Reference::with_tag(registry, repository, tag),
-                )
+                (key.to_owned(), build_reference(registry, repository, key))
             },
         )
 }

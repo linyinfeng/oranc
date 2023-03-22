@@ -1,8 +1,10 @@
-mod convert;
-mod error;
-mod key;
-mod options;
-mod server;
+pub mod convert;
+pub mod error;
+pub mod key;
+pub mod options;
+pub mod push;
+pub mod registry;
+pub mod server;
 
 use clap::Parser;
 
@@ -17,5 +19,6 @@ async fn main() {
     match options.command {
         Commands::Server(server_options) => server::server_main(server_options).await,
         Commands::Tag(key_commands) => key::key_main(key_commands).await,
+        Commands::Push(push_options) => push::push_main(push_options).await,
     }
 }
