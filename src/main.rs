@@ -348,7 +348,7 @@ async fn main() {
         options,
         http_client,
     };
-    log::info!("options = {:?}", ctx.options);
+    log::info!("options = {:#?}", ctx.options);
 
     let ctx_filter = {
         let ctx = ctx.clone();
