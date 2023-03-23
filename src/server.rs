@@ -48,7 +48,7 @@ async fn get(
             let LayerInfo {
                 digest,
                 content_type,
-            } = get_layer_info(&mut client, &reference, &auth)
+            } = get_layer_info(&mut client, &reference, &auth, ctx.options.max_retry)
                 .await?
                 .ok_or(Error::ReferenceNotFound(reference.clone()))?;
             let blob = client
@@ -78,7 +78,7 @@ async fn head(
             let LayerInfo {
                 digest: _,
                 content_type,
-            } = get_layer_info(&mut client, &reference, &auth)
+            } = get_layer_info(&mut client, &reference, &auth, ctx.options.max_retry)
                 .await?
                 .ok_or(warp::reject::not_found())?;
             Ok(Response::builder()
@@ -164,6 +164,8 @@ async fn put(
         &key,
         optional_content_type,
         body.to_vec(),
+        1, // legacy code
+        false,
     )
     .await?;
     Ok(Response::builder()
@@ -238,7 +240,7 @@ async fn log_rejection(rejection: Rejection) -> Result<Response<Body>, Rejection
     Err(rejection)
 }
 
-pub async fn server_main(options: ServerOptions) {
+pub async fn server_main(options: ServerOptions) -> Result<(), Error> {
     let http_client = reqwest::Client::new();
     let ctx = ServerContext {
         options,
@@ -287,4 +289,5 @@ pub async fn server_main(options: ServerOptions) {
     let routes = main.recover(log_rejection).with(log);
 
     warp::serve(routes).run(ctx.options.listen).await;
+    Ok(())
 }
