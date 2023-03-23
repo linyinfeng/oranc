@@ -1,8 +1,10 @@
-use std::{ffi::OsString, path::PathBuf, string::FromUtf8Error};
+use std::{env::VarError, ffi::OsString, path::PathBuf, string::FromUtf8Error};
 
 use http::StatusCode;
-use oci_distribution::{errors::OciDistributionError, Reference};
+use oci_distribution::errors::OciDistributionError;
 use warp::reject::Reject;
+
+use crate::registry::OciLocation;
 
 #[derive(thiserror::Error, Debug)]
 pub enum Error {
@@ -25,7 +27,7 @@ pub enum Error {
     #[error("lack of layer annotation key: {0}")]
     NoLayerAnnotationKey(String),
     #[error("reference not found: {0}")]
-    ReferenceNotFound(Reference),
+    ReferenceNotFound(OciLocation),
     #[error("invalid path: {0:?}")]
     InvalidPath(PathBuf),
     #[error("invalid os string: {0:?}")]
@@ -46,6 +48,8 @@ pub enum Error {
     InvalidStorePath(String),
     #[error("invalid signature: {0}")]
     InvalidSignature(String),
+    #[error("invalid signing key: {0}")]
+    InvalidSigningKey(String),
     #[error("early stop")]
     EarlyStop,
     #[error("tokio join error: {0}")]
@@ -62,6 +66,16 @@ pub enum Error {
     NixDbFolderNotWritable(String),
     #[error("push failed")]
     PushFailed,
+    #[error("ed25519 error: {0}")]
+    Ed25519(#[from] ed25519_compact::Error),
+    #[error("unable to read environment variable `ORANC_SIGNING_KEY`: {0}")]
+    InvalidSigningKeyEnv(VarError),
+    #[error("signature mismatch for key '{name}': new = '{new}', exists = '{exists}'")]
+    SignatureMismatch {
+        name: String,
+        new: String,
+        exists: String,
+    },
 }
 
 impl Error {
@@ -87,6 +101,7 @@ impl Error {
             Error::NoPathInfo(_) => StatusCode::BAD_REQUEST,
             Error::InvalidStorePath(_) => StatusCode::BAD_REQUEST,
             Error::InvalidSignature(_) => StatusCode::INTERNAL_SERVER_ERROR,
+            Error::InvalidSigningKey(_) => StatusCode::BAD_REQUEST,
             Error::EarlyStop => StatusCode::INTERNAL_SERVER_ERROR,
             Error::Join(_) => StatusCode::INTERNAL_SERVER_ERROR,
             Error::InvalidNarSize(_) => StatusCode::INTERNAL_SERVER_ERROR,
@@ -95,6 +110,9 @@ impl Error {
             Error::RetryAllFails(_) => StatusCode::INTERNAL_SERVER_ERROR,
             Error::NixDbFolderNotWritable(_) => StatusCode::BAD_REQUEST,
             Error::PushFailed => StatusCode::INTERNAL_SERVER_ERROR,
+            Error::Ed25519(_) => StatusCode::BAD_REQUEST,
+            Error::InvalidSigningKeyEnv(_) => StatusCode::BAD_REQUEST,
+            Error::SignatureMismatch { .. } => StatusCode::BAD_REQUEST,
         }
     }
 }

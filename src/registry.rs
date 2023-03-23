@@ -1,3 +1,5 @@
+use std::fmt;
+
 use maplit::hashmap;
 use oci_distribution::{
     client::{Config, ImageLayer},
@@ -8,10 +10,39 @@ use oci_distribution::{
     Client, Reference,
 };
 
-use crate::{convert::key_to_tag, error::Error, options::PushOptions};
+use crate::{
+    convert::key_to_tag,
+    error::Error,
+    options::{PushOptions, ServerOptions},
+};
 
 pub const LAYER_MEDIA_TYPE: &str = "application/octet-stream";
 pub const CONTENT_TYPE_ANNOTATION: &str = "com.linyinfeng.oranc.content.type";
+
+pub struct RegistryContext {
+    pub options: RegistryOptions,
+    pub client: Client,
+    pub auth: RegistryAuth,
+}
+
+#[derive(Debug, Clone)]
+pub struct RegistryOptions {
+    pub dry_run: bool,
+    pub max_retry: usize,
+}
+
+#[derive(Debug, Clone)]
+pub struct OciLocation {
+    pub registry: String,
+    pub repository: String,
+    pub key: String,
+}
+
+#[derive(Debug, Clone)]
+pub struct OciItem {
+    pub content_type: Option<String>,
+    pub data: Vec<u8>,
+}
 
 #[derive(Debug, Clone)]
 pub struct LayerInfo {
@@ -19,24 +50,31 @@ pub struct LayerInfo {
     pub content_type: String,
 }
 
-pub fn build_reference(registry: String, repository: String, key: &str) -> Reference {
-    Reference::with_tag(registry, repository, key_to_tag(key))
+impl OciLocation {
+    pub fn reference(&self) -> Reference {
+        Reference::with_tag(
+            self.registry.clone(),
+            self.repository.clone(),
+            key_to_tag(&self.key),
+        )
+    }
 }
 
 pub async fn get_layer_info(
-    client: &mut Client,
-    reference: &Reference,
-    auth: &RegistryAuth,
-    max_retry: usize,
+    ctx: &mut RegistryContext,
+    location: &OciLocation,
 ) -> Result<Option<LayerInfo>, Error> {
+    let max_retry = ctx.options.max_retry;
     if max_retry < 1 {
         return Err(Error::InvalidMaxRetry(max_retry));
     }
+
+    let reference = location.reference();
     let mut pull_result = None;
     let mut errors = vec![];
     for attempt in 1..max_retry {
         log::debug!("pull image manifest {reference:?}, attempt {attempt}/{max_retry}");
-        match client.pull_image_manifest(reference, auth).await {
+        match ctx.client.pull_image_manifest(&reference, &ctx.auth).await {
             Ok(r) => pull_result = Some(r),
             Err(OciDistributionError::ImageManifestNotFoundError(_)) => return Ok(None),
             Err(OciDistributionError::RegistryError { envelope, .. })
@@ -92,22 +130,22 @@ pub async fn get_layer_info(
 }
 
 pub async fn put(
-    options: &PushOptions,
-    client: &mut Client,
-    reference: &Reference,
-    auth: &RegistryAuth,
-    key: &str,
-    optional_content_type: Option<String>,
-    data: Vec<u8>,
+    ctx: &mut RegistryContext,
+    location: &OciLocation,
+    oci_item: OciItem,
 ) -> Result<(), Error> {
-    let content_type = match optional_content_type {
+    let content_type = match oci_item.content_type {
         None => "application/octet-stream".to_string(),
         Some(c) => c,
     };
     let layer_annotations = hashmap! {
         CONTENT_TYPE_ANNOTATION.to_string() => content_type,
     };
-    let layer = ImageLayer::new(data, LAYER_MEDIA_TYPE.to_string(), Some(layer_annotations));
+    let layer = ImageLayer::new(
+        oci_item.data,
+        LAYER_MEDIA_TYPE.to_string(),
+        Some(layer_annotations),
+    );
     let layer_digest = layer.sha256_digest();
     let layers = vec![layer];
 
@@ -131,29 +169,32 @@ pub async fn put(
     let config = Config::oci_v1_from_config_file(config_file, config_annotations)
         .map_err(Error::OciDistribution)?;
 
+    let key = &location.key;
     let image_annotations = hashmap! {
         "com.linyinfeng.oranc.key".to_string() => key.to_owned(),
         "org.opencontainers.image.description".to_string() => key.to_owned(),
     };
     let image_manifest = OciImageManifest::build(&layers, &config, Some(image_annotations));
 
-    let max_retry = options.max_retry;
+    let max_retry = ctx.options.max_retry;
     if max_retry < 1 {
         return Err(Error::InvalidMaxRetry(max_retry));
     }
+    let reference = location.reference();
     let mut errors = vec![];
     for attempt in 1..max_retry {
         log::debug!("push {reference:?}, attempt {attempt}/{max_retry}");
-        if options.dry_run {
+        if ctx.options.dry_run {
             log::debug!("dry run, skipped");
             return Ok(());
         }
-        match client
+        match ctx
+            .client
             .push(
-                reference,
+                &reference,
                 &layers,
                 config.clone(),
-                auth,
+                &ctx.auth,
                 Some(image_manifest.clone()),
             )
             .await
@@ -170,4 +211,26 @@ pub async fn put(
         }
     }
     Err(Error::RetryAllFails(errors))
+}
+
+impl RegistryOptions {
+    pub fn from_push_options(options: &PushOptions) -> Self {
+        Self {
+            dry_run: options.dry_run,
+            max_retry: options.max_retry,
+        }
+    }
+
+    pub fn from_server_options(options: &ServerOptions) -> Self {
+        Self {
+            dry_run: false,
+            max_retry: options.max_retry,
+        }
+    }
+}
+
+impl fmt::Display for OciLocation {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}/{}/{}", self.registry, self.repository, self.key)
+    }
 }

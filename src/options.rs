@@ -47,8 +47,6 @@ pub struct PushOptions {
     pub no_closure: bool,
     #[arg(long, default_value = "/nix/store")]
     pub store_dir: String,
-    #[arg(short, long, value_name = "REGEX", default_value = ".*")]
-    pub signing_key_pattern: Regex,
     #[arg(
         short,
         long,
@@ -56,6 +54,8 @@ pub struct PushOptions {
         default_value = "^cache\\.nixos\\.org-.*$"
     )]
     pub excluded_signing_key_pattern: Regex,
+    #[arg(long, help = "push paths already signed by signing key")]
+    pub already_signed: bool,
     #[arg(short, long, value_name = "NUM", default_value = "4")]
     pub parallel: usize,
     #[arg(short, long, value_name = "NUM", default_value = "3")]

@@ -1,4 +1,9 @@
-use std::collections::{HashSet, VecDeque};
+pub mod sign;
+
+use std::{
+    collections::{HashSet, VecDeque},
+    str::FromStr,
+};
 
 use nix_base32::to_nix_base32;
 use once_cell::sync::Lazy;
@@ -7,8 +12,9 @@ use sha2::{Digest, Sha256};
 
 use crate::{error::Error, options::PushOptions};
 
+use self::sign::{NixKeyPair, NixSignatureList};
+
 static STORE_PATH_REGEX: Lazy<Regex> = Lazy::new(|| Regex::new("^([a-z0-9]+)-(.*)$").unwrap());
-static SIG_REGEX: Lazy<Regex> = Lazy::new(|| Regex::new("^([^:]+):(.*)$").unwrap());
 
 #[derive(Debug, Clone)]
 pub struct NarInfo {
@@ -20,7 +26,7 @@ pub struct NarInfo {
     pub nar_hash: String,
     pub nar_size: usize,
     pub references: Vec<String>,
-    pub deriver: String,
+    pub deriver: Option<String>,
     pub sig: String,
 }
 
@@ -28,7 +34,7 @@ pub struct NarInfo {
 pub struct PathInfo {
     pub id: i64,
     pub path: String,
-    pub deriver_store_paths: String,
+    pub deriver_store_paths: Option<String>,
     pub nar_size: i64,
     pub sigs: String,
     pub reference_store_paths: Vec<String>,
@@ -100,35 +106,41 @@ pub fn strip_store_dir(options: &PushOptions, store_path: &str) -> Result<String
     Ok(stripped.to_owned())
 }
 
-pub fn filter_id(options: &PushOptions, db: &rusqlite::Connection, id: i64) -> Result<bool, Error> {
+pub fn filter_id(
+    options: &PushOptions,
+    key_pair: &NixKeyPair,
+    db: &rusqlite::Connection,
+    id: i64,
+) -> Result<bool, Error> {
     let mut query_sigs = db.prepare_cached("SELECT sigs FROM ValidPaths WHERE id = ?")?;
     let sigs =
         query_sigs.query_row(rusqlite::params![id], |row| row.get::<_, Option<String>>(0))?;
     match sigs {
         None => Ok(false),
-        Some(s) => check_sigs(options, &s),
+        Some(s) => filter_id_single(options, key_pair, &s),
     }
 }
 
-pub fn check_sigs(options: &PushOptions, sigs: &str) -> Result<bool, Error> {
-    let mut include = false;
-    for sig in sigs.split(' ') {
-        match SIG_REGEX.captures(sig) {
-            None => return Err(Error::InvalidSignature(sig.to_owned())),
-            Some(c) => {
-                // priority of excluded pattern is higher
-                if options.excluded_signing_key_pattern.is_match(&c[1]) {
-                    log::trace!("excluded path with sigs: {}", sigs);
-                    return Ok(false);
-                }
-                if options.signing_key_pattern.is_match(&c[1]) {
-                    log::trace!("included path with sigs: {}", sigs);
-                    include = true;
-                }
-            }
-        };
+pub fn filter_id_single(
+    options: &PushOptions,
+    key_pair: &NixKeyPair,
+    sigs: &str,
+) -> Result<bool, Error> {
+    let sig_list = NixSignatureList::from_str(sigs)?;
+    for sig in sig_list.0 {
+        if options.excluded_signing_key_pattern.is_match(&sig.name) {
+            log::trace!("excluded path with signature name: {}", sig.name);
+            return Ok(false);
+        }
+        if sig.name == key_pair.name && !options.already_signed {
+            log::trace!(
+                "excluded already signed path with signature name: {}",
+                sig.name
+            );
+            return Ok(false);
+        }
     }
-    Ok(include)
+    Ok(true)
 }
 
 pub fn query_path_info(db: &rusqlite::Connection, id: i64) -> Result<PathInfo, Error> {
@@ -141,9 +153,10 @@ pub fn query_path_info(db: &rusqlite::Connection, id: i64) -> Result<PathInfo, E
     let mut query_reference_paths = db.prepare_cached(
         "SELECT path FROM ValidPaths WHERE id IN (SELECT reference FROM Refs WHERE referrer = ?)",
     )?;
-    let reference_store_paths = query_reference_paths
+    let mut reference_store_paths: Vec<_> = query_reference_paths
         .query_map(rusqlite::params![id], |row| row.get::<_, String>(0))?
         .collect::<Result<_, rusqlite::Error>>()?;
+    reference_store_paths.sort();
     Ok(PathInfo {
         id,
         path,
@@ -185,9 +198,32 @@ FileHash: sha256:{file_hash}
 FileSize: {file_size}
 NarHash: sha256:{nar_hash}
 NarSize: {nar_size}
-References: {references}
-Deriver: {deriver}
+References: {references}{optional_deriver_line}
 Sig: {sig}
-"
+",
+        optional_deriver_line = match deriver {
+            Some(s) => format!("\nDeriver: {s}"),
+            None => "".to_owned(),
+        }
     )
+}
+
+// fingerprintPath: https://github.com/NixOS/nix/blob/master/perl/lib/Nix/Manifest.pm#L234
+pub fn nar_info_fingerprint(
+    store_dir: &str,
+    store_path: &str,
+    nar_hash: &str,
+    nar_size: usize,
+    references: &[String],
+) -> String {
+    let fingerprint = format!(
+        "1;{store_path};sha256:{nar_hash};{nar_size};{comma_delimited_references}",
+        comma_delimited_references = references
+            .iter()
+            .map(|r| format!("{store_dir}/{r}"))
+            .collect::<Vec<_>>()
+            .join(",")
+    );
+    log::trace!("fingerprint: {fingerprint}");
+    fingerprint
 }

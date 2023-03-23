@@ -1,4 +1,5 @@
 use std::io::{self};
+use std::str::FromStr;
 use std::sync::atomic::AtomicUsize;
 use std::{
     collections::HashSet,
@@ -17,12 +18,14 @@ static NIX_DB_FILE: Lazy<String> = Lazy::new(|| format!("{}/db.sqlite", NIX_DB_D
 const NAR_CONTENT_TYPE: &str = "application/x-nix-nar";
 const NARINFO_CONTENT_TYPE: &str = "text/x-nix-narinfo";
 
+use crate::nix::sign::{NixKeyPair, NixSignatureList};
 use crate::nix::NarInfo;
+use crate::registry::{OciItem, OciLocation, RegistryContext, RegistryOptions};
 use crate::{
     error::Error,
     nix,
     options::{InitializeOptions, PushOptions, PushSubcommands},
-    registry::{self, build_reference},
+    registry,
 };
 
 fn nix_db_connection(options: &PushOptions) -> Result<rusqlite::Connection, Error> {
@@ -69,6 +72,11 @@ fn get_auth() -> RegistryAuth {
     RegistryAuth::Basic(username, password)
 }
 
+fn get_nix_key_pair() -> Result<NixKeyPair, Error> {
+    let sk_str = env::var("ORANC_SIGNING_KEY").map_err(Error::InvalidSigningKeyEnv)?;
+    NixKeyPair::from_secret_key_str(&sk_str)
+}
+
 fn build_nix_cache_info(options: &PushOptions, initialize_options: &InitializeOptions) -> String {
     format!(
         "StoreDir: {store_dir}
@@ -85,27 +93,10 @@ Priority: {priority}
     )
 }
 
-async fn check_presence(
-    options: &PushOptions,
-    client: &mut oci_distribution::Client,
-    auth: &RegistryAuth,
-    nar_info_filename: &str,
-) -> Result<bool, Error> {
-    let reference = build_reference(
-        options.registry.clone(),
-        options.repository.clone(),
-        nar_info_filename,
-    );
-    Ok(
-        registry::get_layer_info(client, &reference, auth, options.max_retry)
-            .await?
-            .is_some(),
-    )
-}
-
 async fn push_one(
     options: &PushOptions,
     auth: &RegistryAuth,
+    key_pair: &NixKeyPair,
     id: i64,
     failed: &AtomicBool,
     task_counter: &AtomicUsize,
@@ -124,115 +115,117 @@ async fn push_one(
         width = total_tasks.to_string().len()
     );
 
-    // this function runs in parallel and use its own connections
-    let mut client: oci_distribution::Client = Default::default();
-    let conn = nix_db_connection(options)?;
-
-    let path_info = nix::query_path_info(&conn, id)?;
-    let store_path = path_info.path.clone();
-    let store_path_hash = nix::store_path_to_hash(options, &store_path)?;
-    let nar_info_filename = format!("{store_path_hash}.narinfo");
-
     not_failed()?;
-    log::info!("[{task_header}] querying '{}'...", store_path);
-    if check_presence(options, &mut client, auth, &nar_info_filename).await? {
-        log::debug!("[{task_header}] skipped '{}'.", store_path);
-        return Ok(());
-    }
 
-    not_failed()?;
-    log::info!("[{task_header}] pushing  '{}'...", store_path);
-    let (nar_size, nar_hash, nar_file_data, nar_file_size, nar_file_hash) =
-        tokio::task::spawn_blocking({
-            // clone data
-            let zstd_level = options.zstd_level;
-            let store_path = store_path.clone();
-            move || {
-                let mut nar_data = vec![];
-                let mut nar_encoder = nix_nar::Encoder::new(store_path);
-                io::copy(&mut nar_encoder, &mut nar_data)?;
-                let nar_size = nar_data.len();
-                let nar_hash = nix::sha256_nix_base32(&nar_data[..]);
-                let mut nar_file_data = vec![];
-                zstd::stream::copy_encode(&nar_data[..], &mut nar_file_data, zstd_level)?;
-                drop(nar_data); // save some memory
-                let nar_file_size = nar_file_data.len();
-                let nar_file_hash = nix::sha256_nix_base32(&nar_file_data[..]);
-                Ok::<_, Error>((
-                    nar_size,
-                    nar_hash,
-                    nar_file_data,
-                    nar_file_size,
-                    nar_file_hash,
-                ))
+    let to_put = tokio::task::spawn_blocking({
+        let options = options.clone();
+        let key_pair = key_pair.clone();
+        move || {
+            // this function runs in parallel and use its own connections
+            let conn = nix_db_connection(&options)?;
+
+            let path_info = nix::query_path_info(&conn, id)?;
+            let store_path = path_info.path.clone();
+            let store_path_hash = nix::store_path_to_hash(&options, &store_path)?;
+
+            log::info!("[{task_header}] pushing  '{}'...", store_path);
+
+            let nar_info_filename = format!("{store_path_hash}.narinfo");
+            let mut nar_data = vec![];
+            let mut nar_encoder = nix_nar::Encoder::new(&store_path);
+            io::copy(&mut nar_encoder, &mut nar_data)?;
+            let nar_size = nar_data.len();
+            let nar_hash = nix::sha256_nix_base32(&nar_data[..]);
+            let mut nar_file_data = vec![];
+            zstd::stream::copy_encode(&nar_data[..], &mut nar_file_data, options.zstd_level)?;
+            drop(nar_data); // save some memory
+            let nar_file_size = nar_file_data.len();
+            let nar_file_hash = nix::sha256_nix_base32(&nar_file_data[..]);
+
+            let expected_nar_size: usize = path_info
+                .nar_size
+                .try_into()
+                .map_err(Error::InvalidNarSize)?;
+            if nar_size != expected_nar_size {
+                return Err(Error::NarSizeNotMatch(path_info.nar_size, nar_size));
             }
-        })
-        .await??;
 
-    let expected_nar_size: usize = path_info
-        .nar_size
-        .try_into()
-        .map_err(Error::InvalidNarSize)?;
-    if nar_size != expected_nar_size {
-        return Err(Error::NarSizeNotMatch(path_info.nar_size, nar_size));
-    }
+            let nar_filename = format!("{nar_hash}.nar.zst");
+            let nar_file_url = format!("nar/{nar_filename}");
+            let references: Vec<String> = path_info
+                .reference_store_paths
+                .iter()
+                .map(|p| nix::strip_store_dir(&options, p))
+                .collect::<Result<_, _>>()?;
+            let deriver: Option<String> = path_info
+                .deriver_store_paths
+                .map_or(Ok::<_, Error>(None), |p| {
+                    Ok(Some(nix::strip_store_dir(&options, &p)?))
+                })?;
+            let nar_info_fingerprint = nix::nar_info_fingerprint(
+                &options.store_dir,
+                &store_path,
+                &nar_hash,
+                nar_size,
+                &references,
+            );
+            let nar_info_sign = key_pair.sign(nar_info_fingerprint.as_bytes())?;
+            let mut sig_list = NixSignatureList::from_str(&path_info.sigs)?;
+            sig_list.merge(&key_pair, nar_info_fingerprint.as_bytes(), nar_info_sign)?;
+            let nar_info = NarInfo {
+                store_path,
+                url: nar_file_url.clone(),
+                compression: "zstd".to_owned(),
+                file_hash: nar_file_hash,
+                file_size: nar_file_size,
+                nar_hash,
+                nar_size,
+                references,
+                deriver,
+                sig: format!("{}", sig_list),
+            };
+            let nar_info_content = nix::build_nar_info(nar_info);
+            log::debug!("[{task_header}] narinfo:\n{nar_info_content}");
+            let nar_info_data = nar_info_content.into_bytes();
 
-    let nar_filename = format!("{nar_hash}.nar.zst");
-    let nar_file_url = format!("nar/{nar_filename}");
-    let nar_oci_reference = build_reference(
-        options.registry.to_owned(),
-        options.repository.to_owned(),
-        &nar_file_url,
-    );
-    let references = path_info
-        .reference_store_paths
-        .iter()
-        .map(|p| nix::strip_store_dir(options, p))
-        .collect::<Result<_, _>>()?;
-    let deriver = nix::strip_store_dir(options, &path_info.deriver_store_paths)?;
-    let nar_info = NarInfo {
-        store_path: store_path.clone(),
-        url: nar_file_url.clone(),
-        compression: "zstd".to_owned(),
-        file_hash: nar_file_hash,
-        file_size: nar_file_size,
-        nar_hash,
-        nar_size,
-        references,
-        deriver,
-        sig: path_info.sigs,
+            Ok(vec![
+                // push nar first
+                (
+                    OciLocation {
+                        registry: options.registry.clone(),
+                        repository: options.repository.clone(),
+                        key: nar_file_url,
+                    },
+                    OciItem {
+                        content_type: Some(NAR_CONTENT_TYPE.to_owned()),
+                        data: nar_file_data,
+                    },
+                ),
+                (
+                    OciLocation {
+                        registry: options.registry,
+                        repository: options.repository,
+                        key: nar_info_filename,
+                    },
+                    OciItem {
+                        content_type: Some(NARINFO_CONTENT_TYPE.to_owned()),
+                        data: nar_info_data,
+                    },
+                ),
+            ])
+        }
+    })
+    .await??;
+
+    let mut ctx = RegistryContext {
+        options: RegistryOptions::from_push_options(options),
+        auth: auth.clone(),
+        // this function runs in parallel and use its own connections
+        client: Default::default(),
     };
-    let nar_info_oci_reference = build_reference(
-        options.registry.to_owned(),
-        options.repository.to_owned(),
-        &nar_info_filename,
-    );
-    let nar_info_content = nix::build_nar_info(nar_info);
-    log::debug!("[{task_header}] narinfo:\n{nar_info_content}");
-    let nar_info_data = nar_info_content.into_bytes();
-
-    registry::put(
-        options,
-        &mut client,
-        &nar_oci_reference,
-        auth,
-        &nar_file_url,
-        Some(NAR_CONTENT_TYPE.to_owned()),
-        nar_file_data,
-    )
-    .await?;
-
-    registry::put(
-        options,
-        &mut client,
-        &nar_info_oci_reference,
-        auth,
-        &nar_info_filename,
-        Some(NARINFO_CONTENT_TYPE.to_owned()),
-        nar_info_data,
-    )
-    .await?;
-
+    for (location, item) in to_put {
+        registry::put(&mut ctx, &location, item).await?;
+    }
     Ok(())
 }
 
@@ -291,9 +284,10 @@ pub async fn push(auth: &RegistryAuth, options: &PushOptions) -> Result<(), Erro
         nix::compute_closure(&conn, ids)?
     };
     log::debug!("id closure: {:#?}", id_closures);
+    let key_pair = get_nix_key_pair()?;
     let mut filtered = HashSet::new();
     for id in id_closures {
-        if nix::filter_id(options, &conn, id)? {
+        if nix::filter_id(options, &key_pair, &conn, id)? {
             filtered.insert(id);
         }
     }
@@ -301,16 +295,24 @@ pub async fn push(auth: &RegistryAuth, options: &PushOptions) -> Result<(), Erro
     let total_tasks = filtered.len();
     let failed = AtomicBool::new(false);
     log::debug!("filtered: {:#?}", filtered);
-    let pushes = futures::stream::iter(
-        filtered
-            .into_iter()
-            .map(|id| push_one(options, auth, id, &failed, &task_counter, total_tasks)),
-    )
+    log::info!("start pushing {total_tasks} takes...");
+    let pushes = futures::stream::iter(filtered.into_iter().map(|id| {
+        push_one(
+            options,
+            auth,
+            &key_pair,
+            id,
+            &failed,
+            &task_counter,
+            total_tasks,
+        )
+    }))
     .buffer_unordered(options.parallel);
     pushes.for_each(|r| handle_push_result(r, &failed)).await;
     if failed.load(Ordering::Relaxed) {
         Err(Error::PushFailed)
     } else {
+        log::info!("done.");
         Ok(())
     }
 }
@@ -322,19 +324,23 @@ pub async fn push_initialize_main(
 ) -> Result<(), Error> {
     let nix_cache_info = build_nix_cache_info(&options, &initialize_options);
     log::debug!("nix-cache-info:\n{nix_cache_info}");
-    let key = "nix-cache-info";
-    let content_type = "text/x-nix-cache-info";
-    let reference = build_reference(options.registry.clone(), options.repository.clone(), key);
-    let mut client = Default::default();
-    registry::put(
-        &options,
-        &mut client,
-        &reference,
-        &auth,
+    let key = "nix-cache-info".to_owned();
+    let content_type = "text/x-nix-cache-info".to_owned();
+    let mut ctx = RegistryContext {
+        options: RegistryOptions::from_push_options(&options),
+        auth,
+        // this function runs in parallel and use its own connections
+        client: Default::default(),
+    };
+    let location = OciLocation {
+        registry: options.registry,
+        repository: options.repository,
         key,
-        Some(content_type.to_string()),
-        nix_cache_info.into_bytes(),
-    )
-    .await?;
+    };
+    let item = OciItem {
+        content_type: Some(content_type),
+        data: nix_cache_info.into_bytes(),
+    };
+    registry::put(&mut ctx, &location, item).await?;
     Ok(())
 }

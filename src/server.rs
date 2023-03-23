@@ -1,7 +1,9 @@
 use crate::error::Error;
-use crate::registry::build_reference;
 use crate::registry::get_layer_info;
 use crate::registry::LayerInfo;
+use crate::registry::OciLocation;
+use crate::registry::RegistryContext;
+use crate::registry::RegistryOptions;
 
 use data_encoding::BASE64;
 use http::header;
@@ -9,8 +11,7 @@ use http::Response;
 use http::StatusCode;
 use hyper::Body;
 
-use oci_distribution::Client;
-use oci_distribution::{secrets::RegistryAuth, Reference};
+use oci_distribution::secrets::RegistryAuth;
 use once_cell::sync::Lazy;
 use regex::Regex;
 use tokio_util::io::ReaderStream;
@@ -31,19 +32,24 @@ struct ServerContext {
 
 async fn get(
     ctx: ServerContext,
-    (key, reference): (String, Reference),
+    location: OciLocation,
     auth: RegistryAuth,
 ) -> Result<Response<Body>, Rejection> {
-    log::info!("get: key = {key}, reference = {reference:?}");
-    let mut client: Client = Default::default();
+    log::info!("get: {location}");
+    let mut registry_ctx = RegistryContext {
+        options: RegistryOptions::from_server_options(&ctx.options),
+        client: Default::default(),
+        auth,
+    };
     let LayerInfo {
         digest,
         content_type,
-    } = get_layer_info(&mut client, &reference, &auth, ctx.options.max_retry)
+    } = get_layer_info(&mut registry_ctx, &location)
         .await?
-        .ok_or(Error::ReferenceNotFound(reference.clone()))?;
-    let blob = client
-        .async_pull_blob(&reference, &digest)
+        .ok_or(Error::ReferenceNotFound(location.clone()))?;
+    let blob = registry_ctx
+        .client
+        .async_pull_blob(&location.reference(), &digest)
         .await
         .map_err(Error::OciDistribution)?;
     let blob_stream = ReaderStream::new(blob);
@@ -56,17 +62,21 @@ async fn get(
 
 async fn head(
     ctx: ServerContext,
-    (key, reference): (String, Reference),
+    location: OciLocation,
     auth: RegistryAuth,
 ) -> Result<Response<Body>, Rejection> {
-    log::info!("head: key = {key}, reference = {reference:?}");
-    let mut client: Client = Default::default();
+    log::info!("head: {location}");
+    let mut registry_ctx = RegistryContext {
+        options: RegistryOptions::from_server_options(&ctx.options),
+        client: Default::default(),
+        auth,
+    };
     let LayerInfo {
         digest: _,
         content_type,
-    } = get_layer_info(&mut client, &reference, &auth, ctx.options.max_retry)
+    } = get_layer_info(&mut registry_ctx, &location)
         .await?
-        .ok_or(warp::reject::not_found())?;
+        .ok_or(Error::ReferenceNotFound(location.clone()))?;
     Ok(Response::builder()
         .status(StatusCode::OK)
         .header(header::CONTENT_TYPE, content_type)
@@ -100,7 +110,7 @@ async fn parse_auth(opt: Option<String>) -> Result<RegistryAuth, Rejection> {
     }
 }
 
-fn reference() -> impl Filter<Extract = ((String, Reference),), Error = Rejection> + Copy {
+fn oci_location() -> impl Filter<Extract = (OciLocation,), Error = Rejection> + Copy {
     warp::path::param() // registry
         .and(warp::path::param()) // repository part1
         .and(warp::path::param()) // repository part1
@@ -109,7 +119,11 @@ fn reference() -> impl Filter<Extract = ((String, Reference),), Error = Rejectio
             |registry, rep1: String, rep2: String, tail: warp::path::Tail| {
                 let repository = format!("{rep1}/{rep2}");
                 let key = tail.as_str();
-                (key.to_owned(), build_reference(registry, repository, key))
+                OciLocation {
+                    registry,
+                    repository,
+                    key: key.to_owned(),
+                }
             },
         )
 }
@@ -119,7 +133,7 @@ async fn handle_error(rejection: Rejection) -> Result<impl Reply, Rejection> {
     let code;
     let message;
     if let Some(e) = rejection.find::<Error>() {
-        log::info!("handle error: {e:?}");
+        log::info!("handle error: {e}");
         code = e.code();
         match e {
             // otherwise aws clients can not decode 404 error message
@@ -147,7 +161,7 @@ pub async fn server_main(options: ServerOptions) -> Result<(), Error> {
         let ctx = ctx.clone();
         warp::any().map(move || ctx.clone())
     };
-    let common = || ctx_filter.clone().and(reference()).and(registry_auth());
+    let common = || ctx_filter.clone().and(oci_location()).and(registry_auth());
     let main = warp::get()
         .and(warp::path::end())
         .map(|| "oranc: OCI Registry As Nix Cache")

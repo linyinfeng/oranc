@@ -8,22 +8,7 @@ Use an OCI registry (typically, [ghcr.io](https://ghcr.io)) to distribute binary
 
 Try [oranc.li7g.com](https://oranc.li7g.com). It's better to self-host an instance. If you do so, please replace all `oranc.li7g.com` below with your instance.
 
-1. Set your credentials.
-
-   ```bash
-   export ORANC_USERNAME={YOUR_OCI_REGISTRY_USERNAME}
-   export ORANC_PASSWORD={YOUR_OCI_REGISTRY_PASSWORD}
-   ```
-
-2. Initialize your OCI registry.
-
-   ```bash
-   oranc push --registry {OCI_REGISTRY} --repository {OCI_REPOSITORY} initialize
-   ```
-
-   *Make the repository public*, otherwise, caching will not work.
-
-3. Prepare your signing keys.
+1. Prepare your signing keys.
 
    ```console
    $ nix key generate-secret --key-name {KEY_NAME} > {PRIVATE_KEY_FILE}
@@ -31,11 +16,26 @@ Try [oranc.li7g.com](https://oranc.li7g.com). It's better to self-host an instan
    {PUBLIC_KEY}
    ```
 
-4. Build and sign something. Currently oranc *only* pushes signed store paths.
+2. Set your credentials.
+
+   ```bash
+   export ORANC_USERNAME={YOUR_OCI_REGISTRY_USERNAME}
+   export ORANC_PASSWORD={YOUR_OCI_REGISTRY_PASSWORD}
+   export ORANC_SIGNING_KEY={YOUR_NIX_SIGNING_KEY}
+   ```
+
+3. Initialize your OCI registry.
+
+   ```bash
+   oranc push --registry {OCI_REGISTRY} --repository {OCI_REPOSITORY} initialize
+   ```
+
+   *Make the repository public*, otherwise, caching will not work.
+
+4. Build something.
 
    ```bash
    nix build
-   nix store sign ./result --recursive --key-file {PRIVATE_KEY_FILE}
    ```
 
 5. Push to your OCI registry.
@@ -43,9 +43,11 @@ Try [oranc.li7g.com](https://oranc.li7g.com). It's better to self-host an instan
    ```bash
    # you need to have write permission to `/nix/var/nix/db`
    # or pass the argument `--allow-immutable-db`
-   # see Limitations
+   # see the Limitations section
    echo ./result | oranc push --registry {OCI_REGISTRY} --repository {OCI_REPOSITORY}
    ```
+
+   `oranc` will sign the NAR archive on the fly using `ORANC_SIGNING_KEY`. Note that only unsigned paths will be pushed, if you manually signed store paths, use the argument `--already-signed` to push them.
 
    Run `oranc push --help` for more options.
 
