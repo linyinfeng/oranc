@@ -1,7 +1,8 @@
 use maplit::hashmap;
 use oci_distribution::{
-    client::{Config, ImageLayer, PushResponse},
+    client::{Config, ImageLayer},
     config::{Architecture, ConfigFile, Os, Rootfs},
+    errors::{OciDistributionError, OciErrorCode},
     manifest::OciImageManifest,
     secrets::RegistryAuth,
     Client, Reference,
@@ -26,14 +27,41 @@ pub async fn get_layer_info(
     client: &mut Client,
     reference: &Reference,
     auth: &RegistryAuth,
+    max_retry: usize,
 ) -> Result<Option<LayerInfo>, Error> {
-    let (manifest, _hash) = match client.pull_image_manifest(reference, auth).await {
-        Ok(t) => t,
-        Err(e) => {
-            log::trace!("failed to get layer info: {e}");
-            return Ok(None);
+    if max_retry < 1 {
+        return Err(Error::InvalidMaxRetry(max_retry));
+    }
+    let mut pull_result = None;
+    let mut errors = vec![];
+    for attempt in 1..max_retry {
+        log::debug!("pull image manifest {reference:?}, attempt {attempt}/{max_retry}");
+        match client.pull_image_manifest(reference, auth).await {
+            Ok(r) => pull_result = Some(r),
+            Err(OciDistributionError::ImageManifestNotFoundError(_)) => return Ok(None),
+            Err(OciDistributionError::RegistryError { envelope, .. })
+                if envelope
+                    .errors
+                    .iter()
+                    .all(|e| e.code == OciErrorCode::ManifestUnknown) =>
+            {
+                return Ok(None)
+            }
+            Err(oci_error) => {
+                let e = oci_error.into();
+                log::warn!(
+                    "pull image manifest {reference:?}, attempt {attempt}/{max_retry} failed: {}",
+                    e
+                );
+                errors.push(e);
+            }
         }
+    }
+    let (manifest, _hash) = match pull_result {
+        Some(r) => r,
+        None => return Err(Error::RetryAllFails(errors)),
     };
+
     match manifest.layers.len() {
         1 => (),
         other => return Err(Error::InvalidLayerCount(other)),
@@ -63,6 +91,8 @@ pub async fn get_layer_info(
     Ok(Some(info))
 }
 
+// TODO refactor server and simplify put function
+#[allow(clippy::too_many_arguments)]
 pub async fn put(
     client: &mut Client,
     reference: &Reference,
@@ -70,7 +100,9 @@ pub async fn put(
     key: &str,
     optional_content_type: Option<String>,
     data: Vec<u8>,
-) -> Result<PushResponse, Error> {
+    max_retry: usize,
+    dry_run: bool,
+) -> Result<(), Error> {
     let content_type = match optional_content_type {
         None => "application/octet-stream".to_string(),
         Some(c) => c,
@@ -107,8 +139,37 @@ pub async fn put(
         "org.opencontainers.image.description".to_string() => key.to_owned(),
     };
     let image_manifest = OciImageManifest::build(&layers, &config, Some(image_annotations));
-    client
-        .push(reference, &layers, config, auth, Some(image_manifest))
-        .await
-        .map_err(Error::OciDistribution)
+
+    if max_retry < 1 {
+        return Err(Error::InvalidMaxRetry(max_retry));
+    }
+    let mut errors = vec![];
+    for attempt in 1..max_retry {
+        log::debug!("push {reference:?}, attempt {attempt}/{max_retry}");
+        if dry_run {
+            log::debug!("dry run, skipped");
+            return Ok(());
+        }
+        match client
+            .push(
+                reference,
+                &layers,
+                config.clone(),
+                auth,
+                Some(image_manifest.clone()),
+            )
+            .await
+        {
+            Ok(_push_response) => return Ok(()),
+            Err(oci_error) => {
+                let e = oci_error.into();
+                log::warn!(
+                    "push {reference:?}, attempt {attempt}/{max_retry} failed: {}",
+                    e
+                );
+                errors.push(e);
+            }
+        }
+    }
+    Err(Error::RetryAllFails(errors))
 }

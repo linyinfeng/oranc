@@ -29,6 +29,8 @@ pub struct ServerOptions {
     pub ignore_upstream: Regex,
     #[arg(long)]
     pub upstream_anonymous: bool,
+    #[arg(short, long, value_name = "NUM", default_value = "3")]
+    pub max_retry: usize,
 }
 
 #[derive(Clone, Debug, Subcommand)]
@@ -47,6 +49,27 @@ pub struct PushOptions {
     pub registry: String,
     #[arg(long)]
     pub repository: String,
+    #[arg(long, help = "do not compute closure for input paths")]
+    pub no_closure: bool,
+    #[arg(long, default_value = "/nix/store")]
+    pub store_dir: String,
+    #[arg(short, long, value_name = "REGEX", default_value = ".*")]
+    pub signing_key_pattern: Regex,
+    #[arg(
+        short,
+        long,
+        value_name = "REGEX",
+        default_value = "^cache\\.nixos\\.org-.*$"
+    )]
+    pub excluded_signing_key_pattern: Regex,
+    #[arg(short, long, value_name = "NUM", default_value = "4")]
+    pub parallel: usize,
+    #[arg(short, long, value_name = "NUM", default_value = "3")]
+    pub zstd_level: i32,
+    #[arg(short, long, value_name = "NUM", default_value = "3")]
+    pub max_retry: usize,
+    #[arg(long)]
+    pub dry_run: bool,
     #[command(subcommand)]
     pub subcommand: Option<PushSubcommands>,
 }
@@ -59,8 +82,6 @@ pub enum PushSubcommands {
 #[derive(Clone, Debug, Parser)]
 #[command(about = "Initialize nix-cache-info")]
 pub struct InitializeOptions {
-    #[arg(short, long, default_value = "/nix/store")]
-    pub store_dir: String,
     #[arg(short, long, default_value = "41")]
     pub priority: u32,
     #[arg(short, long)]

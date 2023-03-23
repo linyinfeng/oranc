@@ -7,12 +7,6 @@ on:
 jobs:
   check:
     runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      packages: write
-    services:
-      oranc:
-        image: ghcr.io/linyinfeng/oranc
     steps:
     - name: Checkout
       uses: actions/checkout@main
@@ -20,10 +14,11 @@ jobs:
       uses: cachix/install-nix-action@master
       with:
         github_access_token: '${{ secrets.GITHUB_TOKEN }}'
-    - uses: linyinfeng/oranc-action@main
+    - name: Setup cachix
+      uses: cachix/cachix-action@master
       with:
-        orancContainer: '${{ job.services.oranc.id }}'
-        signingKey: '${{ secrets.NIX_SINGING_KEY }}'
+        name: linyinfeng
+        signingKey: '${{ secrets.CACHIX_SIGNING_KEY }}'
     - name: Nix flake check
       run: nix flake check
 
@@ -34,9 +29,6 @@ jobs:
     permissions:
       contents: read
       packages: write
-    services:
-      oranc:
-        image: ghcr.io/linyinfeng/oranc
     outputs:
       image_tag: ${{ steps.upload.outputs.image_tag }}
     steps:
@@ -46,10 +38,11 @@ jobs:
       uses: cachix/install-nix-action@master
       with:
         github_access_token: '${{ secrets.GITHUB_TOKEN }}'
-    - uses: linyinfeng/oranc-action@main
+    - name: Setup cachix
+      uses: cachix/cachix-action@master
       with:
-        orancContainer: '${{ job.services.oranc.id }}'
-        signingKey: '${{ secrets.NIX_SINGING_KEY }}'
+        name: linyinfeng
+        signingKey: '${{ secrets.CACHIX_SIGNING_KEY }}'
     - name: Upload docker image
       id: upload
       run: |
@@ -67,28 +60,3 @@ jobs:
         if [ "${{ github.ref }}" = "refs/heads/main" ]; then
           push_to "docker://ghcr.io/linyinfeng/oranc:latest"
         fi
-
-  check-self:
-    runs-on: ubuntu-latest
-    needs: upload-docker-image
-    permissions:
-      contents: read
-      packages: write
-    services:
-      oranc:
-        image: "ghcr.io/linyinfeng/oranc:${{ needs.upload-docker-image.outputs.image_tag }}"
-        env:
-          RUST_LOG: oranc=trace
-    steps:
-    - name: Checkout
-      uses: actions/checkout@main
-    - name: Install nix
-      uses: cachix/install-nix-action@master
-      with:
-        github_access_token: '${{ secrets.GITHUB_TOKEN }}'
-    - uses: linyinfeng/oranc-action@main
-      with:
-        orancContainer: '${{ job.services.oranc.id }}'
-        signingKey: '${{ secrets.NIX_SINGING_KEY }}'
-    - name: Nix flake check
-      run: nix flake check

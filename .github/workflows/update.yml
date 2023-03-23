@@ -26,10 +26,11 @@ jobs:
       uses: cachix/install-nix-action@master
       with:
         github_access_token: '${{ secrets.GITHUB_TOKEN }}'
-    - uses: linyinfeng/oranc-action@main
+    - name: Setup cachix
+      uses: cachix/cachix-action@master
       with:
-        orancContainer: '${{ job.services.oranc.id }}'
-        signingKey: '${{ secrets.NIX_SINGING_KEY }}'
+        name: linyinfeng
+        signingKey: '${{ secrets.CACHIX_SIGNING_KEY }}'
     - name: Git config
       run: |
         git config --global user.email "nano@linyinfeng.com"
