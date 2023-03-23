@@ -308,7 +308,11 @@ pub async fn push(auth: &RegistryAuth, options: &PushOptions) -> Result<(), Erro
     )
     .buffer_unordered(options.parallel);
     pushes.for_each(|r| handle_push_result(r, &failed)).await;
-    Ok(())
+    if failed.load(Ordering::Relaxed) {
+        Err(Error::PushFailed)
+    } else {
+        Ok(())
+    }
 }
 
 pub async fn push_initialize_main(

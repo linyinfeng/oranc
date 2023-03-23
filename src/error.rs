@@ -60,6 +60,8 @@ pub enum Error {
     RetryAllFails(Vec<Error>),
     #[error("nix db folder '{0}' is not writable")]
     NixDbFolderNotWritable(String),
+    #[error("push failed")]
+    PushFailed,
 }
 
 impl Error {
@@ -92,6 +94,7 @@ impl Error {
             Error::InvalidMaxRetry(_) => StatusCode::BAD_REQUEST,
             Error::RetryAllFails(_) => StatusCode::INTERNAL_SERVER_ERROR,
             Error::NixDbFolderNotWritable(_) => StatusCode::BAD_REQUEST,
+            Error::PushFailed => StatusCode::INTERNAL_SERVER_ERROR,
         }
     }
 }
