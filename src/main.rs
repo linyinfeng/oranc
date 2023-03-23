@@ -11,10 +11,11 @@ use clap::Parser;
 
 use error::Error;
 use options::{Commands, Options};
+use pretty_env_logger::formatted_builder;
 
 #[tokio::main]
 async fn main() {
-    pretty_env_logger::init();
+    init_logger();
 
     let options = options::Options::parse();
     log::debug!("options = {:#?}", options);
@@ -22,6 +23,16 @@ async fn main() {
         log::error!("{}", e);
         std::process::exit(1);
     }
+}
+
+fn init_logger() {
+    let mut builder = formatted_builder();
+    let filters = match std::env::var("RUST_LOG") {
+        Ok(f) => f,
+        Err(_) => "oranc=info".to_string(),
+    };
+    builder.parse_filters(&filters);
+    builder.init()
 }
 
 async fn main_result(options: Options) -> Result<(), Error> {
