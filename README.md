@@ -47,7 +47,12 @@ Try [oranc.li7g.com](https://oranc.li7g.com). It's better to self-host an instan
    echo ./result | oranc push --registry {OCI_REGISTRY} --repository {OCI_REPOSITORY}
    ```
 
-   `oranc` will sign the NAR archive on the fly using `ORANC_SIGNING_KEY`. Note that only unsigned paths will be pushed, if you manually signed store paths, use the argument `--already-signed` to push them.
+   `oranc` will sign the NAR archive on the fly using `ORANC_SIGNING_KEY`.
+
+   Note that:
+
+   1. only unsigned paths will be pushed, if you manually signed store paths, use the argument `--already-signed` to push them.
+   2. Currently `oranc` will not sign local paths, run `... | xargs nix store sign --recursive --key-file {YOUR_KEY_FILE}` to sign paths locally.
 
    Run `oranc push --help` for more options.
 
