@@ -39,6 +39,9 @@ Try [oranc.li7g.com](https://oranc.li7g.com). It's better to self-host an instan
 5. Push to your OCI registry.
 
    ```bash
+   # you need to have write permission to `/nix/var/nix/db`
+   # or pass the argument `--allow-immutable-db`
+   # see Limitations
    echo ./result | oranc push --registry {OCI_REGISTRY} --repository {OCI_REPOSITORY}
    ```
 
@@ -62,3 +65,9 @@ oranc server --listen "{LISTEN_ADDRESS}:{LISTEN_PORT}"
 ```
 
 Run `oranc server --help` for more options.
+
+## Limitations
+
+`oranc push` reads the SQLite database `/nix/var/nix/db/db.sqlite`. The directory containing the database, `/nix/var/nix/db`, is typically owned by root. To open the database, `oranc` must have permission to create WAL files under the directory.
+
+To avoid requiring root permission to do `oranc push`, if `oranc push` does not able to create files under `/nix/var/nix/db/db.sqlite` and the argument `--allow-immutable-db` is passed, it will open the database in `immutable=1` mode, if another process writes to the database, `oranc push --allow-immutable-db` may fail.

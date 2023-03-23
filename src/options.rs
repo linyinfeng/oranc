@@ -64,6 +64,8 @@ pub struct PushOptions {
     pub max_retry: usize,
     #[arg(long)]
     pub dry_run: bool,
+    #[arg(long, help = "allow open nix store sqlite database in immutable mode")]
+    pub allow_immutable_db: bool,
     #[command(subcommand)]
     pub subcommand: Option<PushSubcommands>,
 }

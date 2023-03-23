@@ -9,8 +9,11 @@ use std::{
 use futures::StreamExt;
 
 use oci_distribution::secrets::RegistryAuth;
+use once_cell::sync::Lazy;
+use tempfile::tempdir_in;
 
-const NIX_DB_PATH: &str = "/nix/var/nix/db/db.sqlite";
+const NIX_DB_DIR: &str = "/nix/var/nix/db";
+static NIX_DB_FILE: Lazy<String> = Lazy::new(|| format!("{}/db.sqlite", NIX_DB_DIR));
 const NAR_CONTENT_TYPE: &str = "application/x-nix-nar";
 const NARINFO_CONTENT_TYPE: &str = "text/x-nix-narinfo";
 
@@ -21,6 +24,26 @@ use crate::{
     options::{InitializeOptions, PushOptions, PushSubcommands},
     registry::{self, build_reference},
 };
+
+fn nix_db_connection(options: &PushOptions) -> Result<rusqlite::Connection, Error> {
+    match tempdir_in(NIX_DB_DIR) {
+        Ok(probe_dir) => {
+            // NIX_DB_DIR is writable
+            probe_dir.close()?;
+            let db_uri = format!("file:{}?mode=ro", *NIX_DB_FILE);
+            Ok(rusqlite::Connection::open(db_uri)?)
+        }
+        Err(_) => {
+            if options.allow_immutable_db {
+                log::warn!("open nix store database in immutable mode");
+                let db_uri = format!("file:{}?immutable=1", *NIX_DB_FILE);
+                Ok(rusqlite::Connection::open(db_uri)?)
+            } else {
+                Err(Error::NixDbFolderNotWritable(NIX_DB_DIR.to_string()))
+            }
+        }
+    }
+}
 
 fn get_auth() -> RegistryAuth {
     let username = match env::var("ORANC_USERNAME") {
@@ -103,7 +126,7 @@ async fn push_one(
 
     // this function runs in parallel and use its own connections
     let mut client: oci_distribution::Client = Default::default();
-    let conn = rusqlite::Connection::open(NIX_DB_PATH)?;
+    let conn = nix_db_connection(options)?;
 
     let path_info = nix::query_path_info(&conn, id)?;
     let store_path = path_info.path.clone();
@@ -243,6 +266,8 @@ pub async fn push_main(options: PushOptions) -> Result<(), Error> {
 }
 
 pub async fn push(auth: &RegistryAuth, options: &PushOptions) -> Result<(), Error> {
+    let conn = nix_db_connection(options)?;
+
     let lines = std::io::stdin().lines();
     let mut input_paths = HashSet::new();
     for result in lines {
@@ -259,7 +284,6 @@ pub async fn push(auth: &RegistryAuth, options: &PushOptions) -> Result<(), Erro
         }
     }
     log::debug!("input paths: {:#?}", input_paths);
-    let conn = rusqlite::Connection::open(NIX_DB_PATH)?;
     let id_closures = if options.no_closure {
         nix::query_db_ids(&conn, input_paths)?
     } else {
