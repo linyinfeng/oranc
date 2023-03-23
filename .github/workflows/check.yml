@@ -22,28 +22,6 @@ jobs:
     - name: Nix flake check
       run: nix flake check
 
-  check-with-oranc-action:
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      packages: write
-    services:
-      oranc:
-        image: ghcr.io/linyinfeng/oranc
-    steps:
-    - name: Checkout
-      uses: actions/checkout@main
-    - name: Install nix
-      uses: cachix/install-nix-action@master
-      with:
-        github_access_token: '${{ secrets.GITHUB_TOKEN }}'
-    - uses: linyinfeng/oranc-action@main
-      with:
-        orancContainer: '${{ job.services.oranc.id }}'
-        signingKey: ${{ secrets.NIX_SINGING_KEY }}
-    - name: Nix flake check
-      run: nix flake check
-
   upload-docker-image:
     if: ${{ github.event_name == 'push' }}
     runs-on: ubuntu-latest
