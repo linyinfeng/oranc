@@ -31,7 +31,7 @@ Try [oranc.li7g.com](https://oranc.li7g.com). It's better to self-host an instan
    {PUBLIC_KEY}
    ```
 
-4. Build and sign something. oranc *only* pushes signed store paths.
+4. Build and sign something. Currently oranc *only* pushes signed store paths.
 
    ```bash
    nix build

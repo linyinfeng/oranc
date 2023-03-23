@@ -182,7 +182,7 @@ async fn push_one(
     let nar_oci_reference = build_reference(
         options.registry.to_owned(),
         options.repository.to_owned(),
-        &nar_filename,
+        &nar_file_url,
     );
     let references = path_info
         .reference_store_paths
