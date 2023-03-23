@@ -1,11 +1,7 @@
-use std::path::PathBuf;
-
 use crate::error::Error;
-use crate::registry;
 use crate::registry::build_reference;
 use crate::registry::get_layer_info;
 use crate::registry::LayerInfo;
-use bytes::Bytes;
 
 use data_encoding::BASE64;
 use http::header;
@@ -17,13 +13,11 @@ use oci_distribution::Client;
 use oci_distribution::{secrets::RegistryAuth, Reference};
 use once_cell::sync::Lazy;
 use regex::Regex;
-use reqwest::Url;
 use tokio_util::io::ReaderStream;
 use warp::{Filter, Rejection, Reply};
 
 use crate::options::ServerOptions;
 
-const OK_RESPONSE_BODY: &str = "<_/>";
 const NO_SUCH_KEY_RESPONSE_BODY: &str = "<Error><Code>NoSuchKey</Code></Error>";
 
 static AUTH_PATTERN: Lazy<Regex> =
@@ -33,7 +27,6 @@ static DECODED_PATTERN: Lazy<Regex> = Lazy::new(|| Regex::new("^([^:]+):(.+)$").
 #[derive(Debug, Clone)]
 struct ServerContext {
     options: ServerOptions,
-    http_client: reqwest::Client,
 }
 
 async fn get(
@@ -41,29 +34,24 @@ async fn get(
     (key, reference): (String, Reference),
     auth: RegistryAuth,
 ) -> Result<Response<Body>, Rejection> {
-    match check_upstream(&ctx, &key, &auth).await? {
-        None => {
-            log::info!("get: key = {key}, reference = {reference:?}");
-            let mut client: Client = Default::default();
-            let LayerInfo {
-                digest,
-                content_type,
-            } = get_layer_info(&mut client, &reference, &auth, ctx.options.max_retry)
-                .await?
-                .ok_or(Error::ReferenceNotFound(reference.clone()))?;
-            let blob = client
-                .async_pull_blob(&reference, &digest)
-                .await
-                .map_err(Error::OciDistribution)?;
-            let blob_stream = ReaderStream::new(blob);
-            Ok(Response::builder()
-                .status(StatusCode::OK)
-                .header(header::CONTENT_TYPE, content_type)
-                .body(Body::wrap_stream(blob_stream))
-                .map_err(Error::Http)?)
-        }
-        Some(url) => redirect_response(&key, &url),
-    }
+    log::info!("get: key = {key}, reference = {reference:?}");
+    let mut client: Client = Default::default();
+    let LayerInfo {
+        digest,
+        content_type,
+    } = get_layer_info(&mut client, &reference, &auth, ctx.options.max_retry)
+        .await?
+        .ok_or(Error::ReferenceNotFound(reference.clone()))?;
+    let blob = client
+        .async_pull_blob(&reference, &digest)
+        .await
+        .map_err(Error::OciDistribution)?;
+    let blob_stream = ReaderStream::new(blob);
+    Ok(Response::builder()
+        .status(StatusCode::OK)
+        .header(header::CONTENT_TYPE, content_type)
+        .body(Body::wrap_stream(blob_stream))
+        .map_err(Error::Http)?)
 }
 
 async fn head(
@@ -71,106 +59,18 @@ async fn head(
     (key, reference): (String, Reference),
     auth: RegistryAuth,
 ) -> Result<Response<Body>, Rejection> {
-    match check_upstream(&ctx, &key, &auth).await? {
-        None => {
-            log::info!("head: key = {key}, reference = {reference:?}");
-            let mut client: Client = Default::default();
-            let LayerInfo {
-                digest: _,
-                content_type,
-            } = get_layer_info(&mut client, &reference, &auth, ctx.options.max_retry)
-                .await?
-                .ok_or(warp::reject::not_found())?;
-            Ok(Response::builder()
-                .status(StatusCode::OK)
-                .header(header::CONTENT_TYPE, content_type)
-                .body(Body::empty())
-                .map_err(Error::Http)?)
-        }
-        Some(url) => redirect_response(&key, &url),
-    }
-}
-
-async fn check_upstream(
-    ctx: &ServerContext,
-    key: &str,
-    auth: &RegistryAuth,
-) -> Result<Option<Url>, Rejection> {
-    if let RegistryAuth::Anonymous = auth {
-        // skip check upstream caches if `--upstream-anonymous` is off
-        if !ctx.options.upstream_anonymous {
-            log::debug!("skipped checking upstream for key: '{}'", key);
-            return Ok(None);
-        }
-    }
-    if ctx.options.ignore_upstream.is_match(key) {
-        return Ok(None);
-    }
-    for upstream in &ctx.options.upstream {
-        let url = upstream_url(upstream, key)?;
-        let response = ctx
-            .http_client
-            .head(url.clone())
-            .send()
-            .await
-            .map_err(Error::Reqwest)?;
-        if response.status() == StatusCode::OK {
-            return Ok(Some(url));
-        } else if response.status() == StatusCode::NOT_FOUND {
-            continue;
-        } else {
-            return Err(Error::Upstream(response).into());
-        }
-    }
-    Ok(None)
-}
-
-fn upstream_url(base: &Url, key: &str) -> Result<Url, Rejection> {
-    let path = base.path();
-    let new_path = PathBuf::from(path).join(key);
-    match new_path.to_str() {
-        Some(p) => {
-            let mut upstream = base.clone();
-            upstream.set_path(p);
-            Ok(upstream)
-        }
-        None => Err(Error::InvalidPath(new_path).into()),
-    }
-}
-
-fn redirect_response(key: &str, url: &Url) -> Result<Response<Body>, Rejection> {
-    log::info!("redirect: key = {key}, url = {url}");
-    Ok(Response::builder()
-        .status(StatusCode::FOUND)
-        .header(http::header::LOCATION, url.to_string())
-        .body(Body::empty())
-        .map_err(Error::Http)?)
-}
-
-async fn put(
-    _ctx: ServerContext,
-    (key, reference): (String, Reference),
-    auth: RegistryAuth,
-    optional_content_type: Option<String>,
-    body: Bytes,
-) -> Result<Response<&'static str>, Rejection> {
-    log::info!("put: key = {key}, reference = {reference:?}");
-
+    log::info!("head: key = {key}, reference = {reference:?}");
     let mut client: Client = Default::default();
-    registry::put(
-        &mut client,
-        &reference,
-        &auth,
-        &key,
-        optional_content_type,
-        body.to_vec(),
-        1, // legacy code
-        false,
-    )
-    .await?;
+    let LayerInfo {
+        digest: _,
+        content_type,
+    } = get_layer_info(&mut client, &reference, &auth, ctx.options.max_retry)
+        .await?
+        .ok_or(warp::reject::not_found())?;
     Ok(Response::builder()
         .status(StatusCode::OK)
-        .body(OK_RESPONSE_BODY)
+        .header(header::CONTENT_TYPE, content_type)
+        .body(Body::empty())
         .map_err(Error::Http)?)
 }
 
@@ -241,11 +141,7 @@ async fn log_rejection(rejection: Rejection) -> Result<Response<Body>, Rejection
 }
 
 pub async fn server_main(options: ServerOptions) -> Result<(), Error> {
-    let http_client = reqwest::Client::new();
-    let ctx = ServerContext {
-        options,
-        http_client,
-    };
+    let ctx = ServerContext { options };
 
     let ctx_filter = {
         let ctx = ctx.clone();
@@ -262,12 +158,6 @@ pub async fn server_main(options: ServerOptions) -> Result<(), Error> {
         .or(warp::head()
             .and(common())
             .and_then(head)
-            .recover(handle_error))
-        .or(warp::put()
-            .and(common())
-            .and(warp::header::optional("content-type"))
-            .and(warp::body::bytes())
-            .and_then(put)
             .recover(handle_error));
 
     let log = warp::log::custom(|info| {

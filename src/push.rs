@@ -189,26 +189,24 @@ async fn push_one(
     let nar_info_data = nar_info_content.into_bytes();
 
     registry::put(
+        options,
         &mut client,
         &nar_oci_reference,
         auth,
         &nar_file_url,
         Some(NAR_CONTENT_TYPE.to_owned()),
         nar_file_data,
-        options.max_retry,
-        options.dry_run,
     )
     .await?;
 
     registry::put(
+        options,
         &mut client,
         &nar_info_oci_reference,
         auth,
         &nar_info_filename,
         Some(NARINFO_CONTENT_TYPE.to_owned()),
         nar_info_data,
-        options.max_retry,
-        options.dry_run,
     )
     .await?;
 
@@ -298,17 +296,16 @@ pub async fn push_initialize_main(
     log::debug!("nix-cache-info:\n{nix_cache_info}");
     let key = "nix-cache-info";
     let content_type = "text/x-nix-cache-info";
-    let reference = build_reference(options.registry, options.repository, key);
+    let reference = build_reference(options.registry.clone(), options.repository.clone(), key);
     let mut client = Default::default();
     registry::put(
+        &options,
         &mut client,
         &reference,
         &auth,
         key,
         Some(content_type.to_string()),
         nix_cache_info.into_bytes(),
-        options.max_retry,
-        options.dry_run,
     )
     .await?;
     Ok(())
