@@ -1318,6 +1318,7 @@ dependencies = [
  "reqwest",
  "rusqlite",
  "sha2",
+ "tempfile",
  "thiserror",
  "tokio",
  "tokio-util",

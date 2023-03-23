@@ -58,6 +58,8 @@ pub enum Error {
     InvalidMaxRetry(usize),
     #[error("retry all fails: {0:?}")]
     RetryAllFails(Vec<Error>),
+    #[error("nix db folder '{0}' is not writable")]
+    NixDbFolderNotWritable(String),
 }
 
 impl Error {
@@ -89,6 +91,7 @@ impl Error {
             Error::NarSizeNotMatch(_, _) => StatusCode::INTERNAL_SERVER_ERROR,
             Error::InvalidMaxRetry(_) => StatusCode::BAD_REQUEST,
             Error::RetryAllFails(_) => StatusCode::INTERNAL_SERVER_ERROR,
+            Error::NixDbFolderNotWritable(_) => StatusCode::BAD_REQUEST,
         }
     }
 }

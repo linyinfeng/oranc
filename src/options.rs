@@ -1,6 +1,6 @@
 use clap::{Parser, Subcommand};
 use regex::Regex;
-use reqwest::Url;
+
 use std::net::SocketAddr;
 
 #[derive(Clone, Debug, Parser)]
@@ -23,12 +23,6 @@ pub enum Commands {
 pub struct ServerOptions {
     #[arg(short, long, default_value = "[::]:8080")]
     pub listen: SocketAddr,
-    #[arg(short, long, value_name = "URL")]
-    pub upstream: Vec<Url>,
-    #[arg(short, long, value_name = "PATTERN", default_value = "nix-cache-info")]
-    pub ignore_upstream: Regex,
-    #[arg(long)]
-    pub upstream_anonymous: bool,
     #[arg(short, long, value_name = "NUM", default_value = "3")]
     pub max_retry: usize,
 }
@@ -70,6 +64,8 @@ pub struct PushOptions {
     pub max_retry: usize,
     #[arg(long)]
     pub dry_run: bool,
+    #[arg(long, help = "allow open nix store sqlite database in immutable mode")]
+    pub allow_immutable_db: bool,
     #[command(subcommand)]
     pub subcommand: Option<PushSubcommands>,
 }

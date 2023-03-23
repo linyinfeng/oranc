@@ -8,7 +8,7 @@ use oci_distribution::{
     Client, Reference,
 };
 
-use crate::{convert::key_to_tag, error::Error};
+use crate::{convert::key_to_tag, error::Error, options::PushOptions};
 
 pub const LAYER_MEDIA_TYPE: &str = "application/octet-stream";
 pub const CONTENT_TYPE_ANNOTATION: &str = "com.linyinfeng.oranc.content.type";
@@ -91,17 +91,14 @@ pub async fn get_layer_info(
     Ok(Some(info))
 }
 
-// TODO refactor server and simplify put function
-#[allow(clippy::too_many_arguments)]
 pub async fn put(
+    options: &PushOptions,
     client: &mut Client,
     reference: &Reference,
     auth: &RegistryAuth,
     key: &str,
     optional_content_type: Option<String>,
     data: Vec<u8>,
-    max_retry: usize,
-    dry_run: bool,
 ) -> Result<(), Error> {
     let content_type = match optional_content_type {
         None => "application/octet-stream".to_string(),
@@ -140,13 +137,14 @@ pub async fn put(
     };
     let image_manifest = OciImageManifest::build(&layers, &config, Some(image_annotations));
 
+    let max_retry = options.max_retry;
     if max_retry < 1 {
         return Err(Error::InvalidMaxRetry(max_retry));
     }
     let mut errors = vec![];
     for attempt in 1..max_retry {
         log::debug!("push {reference:?}, attempt {attempt}/{max_retry}");
-        if dry_run {
+        if options.dry_run {
             log::debug!("dry run, skipped");
             return Ok(());
         }
