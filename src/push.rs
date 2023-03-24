@@ -20,7 +20,7 @@ const NARINFO_CONTENT_TYPE: &str = "text/x-nix-narinfo";
 
 use crate::nix::sign::{NixKeyPair, NixSignatureList};
 use crate::nix::NarInfo;
-use crate::registry::{OciItem, OciLocation, RegistryContext, RegistryOptions};
+use crate::registry::{OciItem, OciLocation, RegistryOptions};
 use crate::{
     error::Error,
     nix,
@@ -217,12 +217,7 @@ async fn push_one(
     })
     .await??;
 
-    let mut ctx = RegistryContext {
-        options: RegistryOptions::from_push_options(options),
-        auth: auth.clone(),
-        // this function runs in parallel and use its own connections
-        client: Default::default(),
-    };
+    let mut ctx = RegistryOptions::from_push_options(options).context(auth.clone());
     for (location, item) in to_put {
         registry::put(&mut ctx, &location, item).await?;
     }
@@ -326,12 +321,7 @@ pub async fn push_initialize_main(
     log::debug!("nix-cache-info:\n{nix_cache_info}");
     let key = "nix-cache-info".to_owned();
     let content_type = "text/x-nix-cache-info".to_owned();
-    let mut ctx = RegistryContext {
-        options: RegistryOptions::from_push_options(&options),
-        auth,
-        // this function runs in parallel and use its own connections
-        client: Default::default(),
-    };
+    let mut ctx = RegistryOptions::from_push_options(&options).context(auth);
     let location = OciLocation {
         registry: options.registry,
         repository: options.repository,

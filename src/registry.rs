@@ -2,7 +2,7 @@ use std::fmt;
 
 use maplit::hashmap;
 use oci_distribution::{
-    client::{Config, ImageLayer},
+    client::{ClientConfig, ClientProtocol, Config, ImageLayer},
     config::{Architecture, ConfigFile, Os, Rootfs},
     errors::{OciDistributionError, OciErrorCode},
     manifest::OciImageManifest,
@@ -27,6 +27,7 @@ pub struct RegistryContext {
 
 #[derive(Debug, Clone)]
 pub struct RegistryOptions {
+    pub no_ssl: bool,
     pub dry_run: bool,
     pub max_retry: usize,
 }
@@ -218,6 +219,7 @@ impl RegistryOptions {
         Self {
             dry_run: options.dry_run,
             max_retry: options.max_retry,
+            no_ssl: options.no_ssl,
         }
     }
 
@@ -225,6 +227,32 @@ impl RegistryOptions {
         Self {
             dry_run: false,
             max_retry: options.max_retry,
+            no_ssl: options.no_ssl,
+        }
+    }
+
+    pub fn client_config(&self) -> ClientConfig {
+        let protocol = if self.no_ssl {
+            ClientProtocol::Http
+        } else {
+            ClientProtocol::Https
+        };
+        ClientConfig {
+            protocol,
+            ..Default::default()
+        }
+    }
+
+    pub fn client(&self) -> Client {
+        Client::new(self.client_config())
+    }
+
+    pub fn context(self, auth: RegistryAuth) -> RegistryContext {
+        let client = self.client();
+        RegistryContext {
+            options: self,
+            client,
+            auth,
         }
     }
 }
