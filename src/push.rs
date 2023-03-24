@@ -263,19 +263,24 @@ pub async fn push(auth: &RegistryAuth, options: &PushOptions) -> Result<(), Erro
         let line = result?;
         let trimmed = line.trim();
         if !trimmed.is_empty() {
-            let caonoicalized = nix::canonicalize_store_path_input(&options.store_dir, trimmed)?;
-            input_paths.insert(caonoicalized);
+            input_paths.insert(trimmed.to_string());
         }
     }
-    log::debug!("input paths size: {}", input_paths.len());
+    log::info!("number of input paths: {}", input_paths.len());
     log::trace!("input paths: {:#?}", input_paths);
+    let canonical_paths: HashSet<_> = input_paths
+        .into_iter()
+        .map(|p| nix::canonicalize_store_path_input(&options.store_dir, &p))
+        .collect::<Result<_, _>>()?;
+    log::info!("number of input store paths: {}", canonical_paths.len());
+    log::trace!("canonical paths: {:#?}", canonical_paths);
     let id_closures = if options.no_closure {
-        nix::query_db_ids(&conn, input_paths)?
+        nix::query_db_ids(&conn, canonical_paths)?
     } else {
-        let ids = nix::query_db_ids(&conn, input_paths)?;
+        let ids = nix::query_db_ids(&conn, canonical_paths)?;
         nix::compute_closure(&conn, ids)?
     };
-    log::debug!("id closure size: {}", id_closures.len());
+    log::info!("number of store paths in closure: {}", id_closures.len());
     log::trace!("id closure: {:#?}", id_closures);
     let key_pair = get_nix_key_pair()?;
     let mut filtered = HashSet::new();
@@ -287,7 +292,7 @@ pub async fn push(auth: &RegistryAuth, options: &PushOptions) -> Result<(), Erro
     let task_counter = AtomicUsize::new(1);
     let total_tasks = filtered.len();
     let failed = AtomicBool::new(false);
-    log::debug!("filtered size: {}", filtered.len());
+    log::info!("number of store paths after filtering: {}", filtered.len());
     log::trace!("filtered: {:#?}", filtered);
     log::info!("start {total_tasks} tasks...");
     let pushes = futures::stream::iter(filtered.into_iter().map(|id| {
