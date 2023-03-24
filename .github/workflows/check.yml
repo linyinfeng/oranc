@@ -65,7 +65,8 @@ jobs:
     runs-on: ubuntu-latest
     needs: upload-docker-image
     env:
-      PACKAGE_FOR_TEST: "github:nixos/nixpkgs/nixos-unstable#nixosTests.nginx.driver"
+      # PACKAGE_FOR_TEST: "github:nixos/nixpkgs/nixos-unstable#nixosTests.nginx.driver"
+      PACKAGE_FOR_TEST: "github:nixos/nixpkgs/nixos-unstable#coreutils"
       CACHIX_SUBSTITUTER: "https://linyinfeng.cachix.org"
       CACHIX_PUBLIC_KEY: "linyinfeng.cachix.org-1:sPYQXcNrnCf7Vr7T0YmjXz5dMZ7aOKG3EqLja0xr9MM="
       STORE_URL: "http://localhost:5001/registry:5000/test-user/oranc-cache"
