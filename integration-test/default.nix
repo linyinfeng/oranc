@@ -13,7 +13,7 @@
   findutils,
   shadow,
 }: let
-  packageForTest = "github:nixos/nixpkgs/nixos-unstable#nixosTests.nginx.driver";
+  packageForTest = "github:nixos/nixpkgs/nixos-unstable#coreutils";
   composeFile = (formats.yaml {}).generate "container-compose-yml" {
     services = {
       registry = {

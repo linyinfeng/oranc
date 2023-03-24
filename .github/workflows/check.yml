@@ -62,13 +62,18 @@ jobs:
         fi
 
   integration-test:
+    strategy:
+      matrix:
+        package-for-test: ["coreutils", "nixosTests.nginx.driver"]
     runs-on: ubuntu-latest
     needs: upload-docker-image
     env:
-      # PACKAGE_FOR_TEST: "github:nixos/nixpkgs/nixos-unstable#nixosTests.nginx.driver"
-      PACKAGE_FOR_TEST: "github:nixos/nixpkgs/nixos-unstable#coreutils"
+      PACKAGE_FOR_TEST: "github:nixos/nixpkgs/nixos-unstable#${{ matrix.package-for-test }}"
       CACHIX_SUBSTITUTER: "https://linyinfeng.cachix.org"
       CACHIX_PUBLIC_KEY: "linyinfeng.cachix.org-1:sPYQXcNrnCf7Vr7T0YmjXz5dMZ7aOKG3EqLja0xr9MM="
+      REGISTRY: "localhost:5000"
+      ORANC: "localhost:5001"
+      REPOSITORY: "test-user/oranc-cache"
       STORE_URL: "http://localhost:5001/registry:5000/test-user/oranc-cache"
     services:
       oranc:
@@ -89,9 +94,9 @@ jobs:
       with:
         github_access_token: '${{ secrets.GITHUB_TOKEN }}'
     - name: Registry health check
-      run: curl -v http://localhost:5000
+      run: curl -v "http://$REGISTRY"
     - name: Oranc server health check
-      run: curl -v http://localhost:5001
+      run: curl -v "http://$ORANC"
     - name: Generate key pair
       run: |
         mkdir -p /tmp/nix-key-pair
@@ -111,21 +116,27 @@ jobs:
         /tmp/oranc/bin/oranc \
           push \
           --no-ssl \
-          --registry localhost:5000 \
-          --repository "test-user/oranc-cache" \
+          --registry "$REGISTRY" \
+          --repository "$REPOSITORY" \
           initialize
         curl -v "$STORE_URL/nix-cache-info"
     - name: Get test packages from cache.nixos.org
       run: |
         nix path-info --derivation --recursive "$PACKAGE_FOR_TEST" > /tmp/derivers
         cat /tmp/derivers | xargs nix build --no-link --print-out-paths > /tmp/derived
-        cat /tmp/derivers /tmp/derived > /tmp/store_paths
+        cat /tmp/derived | xargs nix path-info --recursive > /tmp/derived_closure
+        cat /tmp/derivers /tmp/derived_closure | sort | uniq > /tmp/store_paths
+
+        echo "derivers: $(cat /tmp/derivers | wc -l)"
+        echo "derived: $(cat /tmp/derived | wc -l)"
+        echo "derived closure: $(cat /tmp/derived_closure | wc -l)"
+        echo "store paths: $(cat /tmp/store_paths | wc -l)"
     - name: Push to cache
       run: |
         export ORANC_SIGNING_KEY="$(cat /tmp/nix-key-pair/secret)"
 
         # sign first,then push with --already-signed
-        # oranc will check its signature matches already exists signature
+        # oranc will check generated signature matches already exists signature
         cat /tmp/store_paths | \
           xargs nix store sign --key-file /tmp/nix-key-pair/secret
 
@@ -134,8 +145,8 @@ jobs:
         sudo -E /tmp/oranc/bin/oranc \
           push \
           --no-ssl \
-          --registry localhost:5000 \
-          --repository "test-user/oranc-cache" \
+          --registry "$REGISTRY" \
+          --repository "$REPOSITORY" \
           --excluded-signing-key-pattern '^$' \
           --already-signed
     - name: Verify remote store
@@ -149,12 +160,14 @@ jobs:
         nix store gc
     - name: Get test packages from registry
       run: |
-        cat /tmp/store_paths | \
+        # instantiate derivations again
+        nix path-info --derivation --recursive "$PACKAGE_FOR_TEST" > /dev/null
+        cat /tmp/derived_closure | \
           xargs nix build \
-          --no-link \
-          --max-jobs 0 \
-          --substituters "$STORE_URL" \
-          --trusted-public-keys "$(cat /tmp/nix-key-pair/public)"
+            --no-link \
+            --max-jobs 0 \
+            --substituters "$STORE_URL" \
+            --trusted-public-keys "$(cat /tmp/nix-key-pair/public)"
     - name: Verify local store
       run: |
         cat /tmp/store_paths | \
