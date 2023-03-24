@@ -106,6 +106,9 @@
                 };
             };
           };
+          integrationTestScript = pkgs.callPackage ./integration-test {
+            inherit (config.packages) dockerImage oranc;
+          };
         };
         overlayAttrs.oranc = config.packages.oranc;
         checks = {
@@ -123,6 +126,7 @@
           programs = {
             alejandra.enable = true;
             rustfmt.enable = true;
+            shfmt.enable = true;
           };
         };
         devShells.default = pkgs.mkShell {

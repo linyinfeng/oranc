@@ -81,15 +81,18 @@ impl fmt::Display for NixSignature {
     }
 }
 
-impl FromStr for NixSignatureList {
-    type Err = Error;
-
-    fn from_str(s: &str) -> Result<Self, Error> {
-        let s = s
-            .split(' ')
-            .map(NixSignature::from_str)
-            .collect::<Result<_, _>>()?;
-        Ok(Self(s))
+impl NixSignatureList {
+    pub fn from_optional_str(o: &Option<String>) -> Result<Self, Error> {
+        match o {
+            None => Ok(Self(Vec::new())),
+            Some(s) => {
+                let s = s
+                    .split(' ')
+                    .map(NixSignature::from_str)
+                    .collect::<Result<_, _>>()?;
+                Ok(Self(s))
+            }
+        }
     }
 }
 

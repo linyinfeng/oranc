@@ -60,3 +60,103 @@ jobs:
         if [ "${{ github.ref }}" = "refs/heads/main" ]; then
           push_to "docker://ghcr.io/linyinfeng/oranc:latest"
         fi
+
+  integration-test:
+    runs-on: ubuntu-latest
+    needs: upload-docker-image
+    env:
+      # PACKAGE_FOR_TEST: "github:nixos/nixpkgs/nixos-unstable#nixosTests.nginx.driver"
+      PACKAGE_FOR_TEST: "github:nixos/nixpkgs/nixos-unstable#coreutils"
+      CACHIX_SUBSTITUTER: "https://linyinfeng.cachix.org"
+      CACHIX_PUBLIC_KEY: "linyinfeng.cachix.org-1:sPYQXcNrnCf7Vr7T0YmjXz5dMZ7aOKG3EqLja0xr9MM="
+      STORE_URL: "http://localhost:5001/registry:5000/test-user/oranc-cache"
+    services:
+      oranc:
+        image: ghcr.io/linyinfeng/oranc:${{ needs.upload-docker-image.outputs.image_tag }}
+        ports:
+          - 5001:80
+        env:
+          EXTRA_ARGS: --no-ssl
+      registry:
+        image: registry
+        ports:
+          - 5000:5000
+    steps:
+    - name: Checkout
+      uses: actions/checkout@main
+    - name: Install nix
+      uses: cachix/install-nix-action@master
+      with:
+        github_access_token: '${{ secrets.GITHUB_TOKEN }}'
+    - name: Registry health check
+      run: curl -v http://localhost:5000
+    - name: Oranc server health check
+      run: curl -v http://localhost:5001
+    - name: Generate key pair
+      run: |
+        mkdir -p /tmp/nix-key-pair
+        nix key generate-secret --key-name "oranc-test" > /tmp/nix-key-pair/secret
+        cat /tmp/nix-key-pair/secret | nix key convert-secret-to-public > /tmp/nix-key-pair/public
+
+        echo "secret key for test: $(cat /tmp/nix-key-pair/secret)"
+        echo "public key for test: $(cat /tmp/nix-key-pair/public)"
+    - name: Install oranc
+      run: |
+        nix build .#oranc \
+          --extra-substituters "$CACHIX_SUBSTITUTER" \
+          --extra-trusted-public-keys "$CACHIX_PUBLIC_KEY" \
+          --out-link /tmp/oranc
+    - name: Initialize registry
+      run: |
+        /tmp/oranc/bin/oranc \
+          push \
+          --no-ssl \
+          --registry localhost:5000 \
+          --repository "test-user/oranc-cache" \
+          initialize
+        curl -v "$STORE_URL/nix-cache-info"
+    - name: Get test packages from cache.nixos.org
+      run: |
+        nix path-info --derivation --recursive "$PACKAGE_FOR_TEST" > /tmp/derivers
+        cat /tmp/derivers | xargs nix build --no-link --print-out-paths > /tmp/derived
+        cat /tmp/derivers /tmp/derived > /tmp/store_paths
+    - name: Push to cache
+      run: |
+        export ORANC_SIGNING_KEY="$(cat /tmp/nix-key-pair/secret)"
+
+        # sign first,then push with --already-signed
+        # oranc will check its signature matches already exists signature
+        cat /tmp/store_paths | \
+          xargs nix store sign --key-file /tmp/nix-key-pair/secret
+
+        # push everything
+        cat /tmp/store_paths | \
+        sudo -E /tmp/oranc/bin/oranc \
+          push \
+          --no-ssl \
+          --registry localhost:5000 \
+          --repository "test-user/oranc-cache" \
+          --excluded-signing-key-pattern '^$' \
+          --already-signed
+    - name: Verify remote store
+      run: |
+        cat /tmp/store_paths | \
+          xargs nix store verify \
+          --store "$STORE_URL" \
+          --trusted-public-keys "$(cat /tmp/nix-key-pair/public)"
+    - name: GC local store
+      run: |
+        nix store gc
+    - name: Get test packages from registry
+      run: |
+        cat /tmp/store_paths | \
+          xargs nix build \
+          --no-link \
+          --max-jobs 0 \
+          --substituters "$STORE_URL" \
+          --trusted-public-keys "$(cat /tmp/nix-key-pair/public)"
+    - name: Verify local store
+      run: |
+        cat /tmp/store_paths | \
+          xargs nix store verify \
+          --trusted-public-keys "$(cat /tmp/nix-key-pair/public)"

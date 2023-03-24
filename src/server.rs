@@ -2,7 +2,7 @@ use crate::error::Error;
 use crate::registry::get_layer_info;
 use crate::registry::LayerInfo;
 use crate::registry::OciLocation;
-use crate::registry::RegistryContext;
+
 use crate::registry::RegistryOptions;
 
 use data_encoding::BASE64;
@@ -36,11 +36,7 @@ async fn get(
     auth: RegistryAuth,
 ) -> Result<Response<Body>, Rejection> {
     log::info!("get: {location}");
-    let mut registry_ctx = RegistryContext {
-        options: RegistryOptions::from_server_options(&ctx.options),
-        client: Default::default(),
-        auth,
-    };
+    let mut registry_ctx = RegistryOptions::from_server_options(&ctx.options).context(auth);
     let LayerInfo {
         digest,
         content_type,
@@ -66,11 +62,7 @@ async fn head(
     auth: RegistryAuth,
 ) -> Result<Response<Body>, Rejection> {
     log::info!("head: {location}");
-    let mut registry_ctx = RegistryContext {
-        options: RegistryOptions::from_server_options(&ctx.options),
-        client: Default::default(),
-        auth,
-    };
+    let mut registry_ctx = RegistryOptions::from_server_options(&ctx.options).context(auth);
     let LayerInfo {
         digest: _,
         content_type,

@@ -25,6 +25,8 @@ pub struct ServerOptions {
     pub listen: SocketAddr,
     #[arg(short, long, value_name = "NUM", default_value = "3")]
     pub max_retry: usize,
+    #[arg(long, help = "disable ssl")]
+    pub no_ssl: bool,
 }
 
 #[derive(Clone, Debug, Subcommand)]
@@ -66,6 +68,8 @@ pub struct PushOptions {
     pub dry_run: bool,
     #[arg(long, help = "allow open nix store sqlite database in immutable mode")]
     pub allow_immutable_db: bool,
+    #[arg(long, help = "disable ssl")]
+    pub no_ssl: bool,
     #[command(subcommand)]
     pub subcommand: Option<PushSubcommands>,
 }
