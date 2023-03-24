@@ -65,8 +65,7 @@ jobs:
     runs-on: ubuntu-latest
     needs: upload-docker-image
     env:
-      # PACKAGE_FOR_TEST: "nixpkgs#nixosTests.nginx.driver"
-      PACKAGE_FOR_TEST: "nixpkgs#coreutils"
+      PACKAGE_FOR_TEST: "github:nixos/nixpkgs/nixos-unstable#nixosTests.nginx.driver"
       CACHIX_SUBSTITUTER: "https://linyinfeng.cachix.org"
       CACHIX_PUBLIC_KEY: "linyinfeng.cachix.org-1:sPYQXcNrnCf7Vr7T0YmjXz5dMZ7aOKG3EqLja0xr9MM="
       STORE_URL: "http://localhost:5001/registry:5000/test-user/oranc-cache"
@@ -118,18 +117,19 @@ jobs:
     - name: Get test packages from cache.nixos.org
       run: |
         nix path-info --derivation --recursive "$PACKAGE_FOR_TEST" > /tmp/derivers
-        cat /tmp/derivers | xargs nix build --no-link
-        cat /tmp/derivers | xargs nix path-info > /tmp/derived
+        cat /tmp/derivers | xargs nix build --no-link --print-out-paths > /tmp/derived
+        cat /tmp/derivers /tmp/derived > /tmp/store_paths
     - name: Push to cache
       run: |
         export ORANC_SIGNING_KEY="$(cat /tmp/nix-key-pair/secret)"
 
         # sign first,then push with --already-signed
         # oranc will check its signature matches already exists signature
-        nix store sign --all --key-file /tmp/nix-key-pair/secret
+        cat /tmp/store_paths | \
+          xargs nix store sign --key-file /tmp/nix-key-pair/secret
 
         # push everything
-        cat /tmp/derived | \
+        cat /tmp/store_paths | \
         sudo -E /tmp/oranc/bin/oranc \
           push \
           --no-ssl \
@@ -139,7 +139,7 @@ jobs:
           --already-signed
     - name: Verify remote store
       run: |
-        cat /tmp/derived | \
+        cat /tmp/store_paths | \
           xargs nix store verify \
           --store "$STORE_URL" \
           --trusted-public-keys "$(cat /tmp/nix-key-pair/public)"
@@ -148,7 +148,7 @@ jobs:
         nix store gc
     - name: Get test packages from registry
       run: |
-        cat /tmp/derivers | \
+        cat /tmp/store_paths | \
           xargs nix build \
           --no-link \
           --max-jobs 0 \
@@ -156,6 +156,6 @@ jobs:
           --trusted-public-keys "$(cat /tmp/nix-key-pair/public)"
     - name: Verify local store
       run: |
-        cat /tmp/derived | \
+        cat /tmp/store_paths | \
           xargs nix store verify \
-          --extra-trusted-public-keys "$(cat /tmp/nix-key-pair/public)"
+          --trusted-public-keys "$(cat /tmp/nix-key-pair/public)"

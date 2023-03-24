@@ -2,7 +2,8 @@ pub mod sign;
 
 use std::{
     collections::{HashSet, VecDeque},
-    str::FromStr,
+    fmt, fs,
+    path::PathBuf,
 };
 
 use nix_base32::to_nix_base32;
@@ -21,13 +22,20 @@ pub struct NarInfo {
     pub store_path: String,
     pub url: String,
     pub compression: String,
-    pub file_hash: String,
+    pub file_hash: NixHash,
     pub file_size: usize,
-    pub nar_hash: String,
+    pub nar_hash: NixHash,
     pub nar_size: usize,
     pub references: Vec<String>,
     pub deriver: Option<String>,
-    pub sig: String,
+    pub sigs: NixSignatureList,
+    pub ca: Option<String>,
+}
+
+#[derive(Debug, Clone)]
+pub struct NixHash {
+    pub algorithm: String,
+    pub base32: String,
 }
 
 #[derive(Debug, Clone)]
@@ -36,8 +44,30 @@ pub struct PathInfo {
     pub path: String,
     pub deriver_store_paths: Option<String>,
     pub nar_size: i64,
-    pub sigs: String,
+    pub sigs: Option<String>,
     pub reference_store_paths: Vec<String>,
+    pub ca: Option<String>,
+}
+
+pub fn canonicalize_store_path_input(store_dir: &str, input: &str) -> Result<String, Error> {
+    let store_dir_prefix = format!("{store_dir}/");
+    let mut path = PathBuf::from(input);
+    loop {
+        if input.starts_with(&store_dir_prefix) {
+            let path_os_str = path.as_os_str();
+            let path_str = path_os_str
+                .to_str()
+                .ok_or(Error::InvalidOsString(path_os_str.to_owned()))?;
+            return Ok(path_str.to_owned());
+        } else {
+            let metadata = fs::symlink_metadata(&path)?;
+            if metadata.is_symlink() {
+                path = fs::read_link(&path)?
+            } else {
+                return Err(Error::InvalidStorePath(input.to_owned()));
+            }
+        }
+    }
 }
 
 pub fn query_db_ids(
@@ -115,18 +145,15 @@ pub fn filter_id(
     let mut query_sigs = db.prepare_cached("SELECT sigs FROM ValidPaths WHERE id = ?")?;
     let sigs =
         query_sigs.query_row(rusqlite::params![id], |row| row.get::<_, Option<String>>(0))?;
-    match sigs {
-        None => Ok(false),
-        Some(s) => filter_id_single(options, key_pair, &s),
-    }
+    filter_id_single(options, key_pair, &sigs)
 }
 
 pub fn filter_id_single(
     options: &PushOptions,
     key_pair: &NixKeyPair,
-    sigs: &str,
+    sigs: &Option<String>,
 ) -> Result<bool, Error> {
-    let sig_list = NixSignatureList::from_str(sigs)?;
+    let sig_list = NixSignatureList::from_optional_str(sigs)?;
     for sig in sig_list.0 {
         if options.excluded_signing_key_pattern.is_match(&sig.name) {
             log::trace!("excluded path with signature name: {}", sig.name);
@@ -145,10 +172,16 @@ pub fn filter_id_single(
 
 pub fn query_path_info(db: &rusqlite::Connection, id: i64) -> Result<PathInfo, Error> {
     let mut query_info =
-        db.prepare_cached("SELECT path, deriver, narSize, sigs FROM ValidPaths WHERE id = ?")?;
-    let (path, deriver_store_paths, nar_size, sigs) = query_info
-        .query_row(rusqlite::params![id], |row| {
-            Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?))
+        db.prepare_cached("SELECT path, deriver, narSize, sigs, ca FROM ValidPaths WHERE id = ?")?;
+    let (path, deriver_store_paths, nar_size, sigs, ca) =
+        query_info.query_row(rusqlite::params![id], |row| {
+            Ok((
+                row.get(0)?,
+                row.get(1)?,
+                row.get(2)?,
+                row.get(3)?,
+                row.get(4)?,
+            ))
         })?;
     let mut query_reference_paths = db.prepare_cached(
         "SELECT path FROM ValidPaths WHERE id IN (SELECT reference FROM Refs WHERE referrer = ?)",
@@ -164,60 +197,57 @@ pub fn query_path_info(db: &rusqlite::Connection, id: i64) -> Result<PathInfo, E
         nar_size,
         sigs,
         reference_store_paths,
+        ca,
     })
 }
 
-pub fn sha256_nix_base32(data: &[u8]) -> String {
-    let sha256 = {
-        let mut hasher = Sha256::new();
-        hasher.update(data);
-        hasher.finalize()
-    };
-    to_nix_base32(&sha256[..])
+impl NixHash {
+    pub fn hash_data(data: &[u8]) -> NixHash {
+        let sha256 = {
+            let mut hasher = Sha256::new();
+            hasher.update(data);
+            hasher.finalize()
+        };
+        NixHash {
+            algorithm: "sha256".to_string(),
+            base32: to_nix_base32(&sha256[..]),
+        }
+    }
 }
 
-pub fn build_nar_info(nar_info: NarInfo) -> String {
-    let NarInfo {
-        store_path,
-        url,
-        compression,
-        file_hash,
-        file_size,
-        nar_hash,
-        nar_size,
-        references: references_vec,
-        deriver,
-        sig,
-    } = nar_info;
-    let references = references_vec.join(" ");
-    format!(
-        "StorePath: {store_path}
-URL: {url}
-Compression: {compression}
-FileHash: sha256:{file_hash}
-FileSize: {file_size}
-NarHash: sha256:{nar_hash}
-NarSize: {nar_size}
-References: {references}{optional_deriver_line}
-Sig: {sig}
-",
-        optional_deriver_line = match deriver {
-            Some(s) => format!("\nDeriver: {s}"),
-            None => "".to_owned(),
+impl fmt::Display for NarInfo {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        writeln!(f, "StorePath: {}", self.store_path)?;
+        writeln!(f, "URL: {}", self.url)?;
+        writeln!(f, "Compression: {}", self.compression)?;
+        writeln!(f, "FileHash: {}", self.file_hash)?;
+        writeln!(f, "FileSize: {}", self.file_size)?;
+        writeln!(f, "NarHash: {}", self.nar_hash)?;
+        writeln!(f, "NarSize: {}", self.nar_size)?;
+        writeln!(f, "References: {}", self.references.join(" "))?;
+        if let Some(deriver) = &self.deriver {
+            writeln!(f, "Deriver: {}", deriver)?;
         }
-    )
+        for sig in &self.sigs.0 {
+            writeln!(f, "Sig: {sig}")?;
+        }
+        if let Some(ca) = &self.ca {
+            writeln!(f, "CA: {ca}")?;
+        }
+        Ok(())
+    }
 }
 
 // fingerprintPath: https://github.com/NixOS/nix/blob/master/perl/lib/Nix/Manifest.pm#L234
 pub fn nar_info_fingerprint(
     store_dir: &str,
     store_path: &str,
-    nar_hash: &str,
+    nar_hash: &NixHash,
     nar_size: usize,
     references: &[String],
 ) -> String {
     let fingerprint = format!(
-        "1;{store_path};sha256:{nar_hash};{nar_size};{comma_delimited_references}",
+        "1;{store_path};{nar_hash};{nar_size};{comma_delimited_references}",
         comma_delimited_references = references
             .iter()
             .map(|r| format!("{store_dir}/{r}"))
@@ -226,4 +256,10 @@ pub fn nar_info_fingerprint(
     );
     log::trace!("fingerprint: {fingerprint}");
     fingerprint
+}
+
+impl fmt::Display for NixHash {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}:{}", self.algorithm, self.base32)
+    }
 }
