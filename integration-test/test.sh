@@ -63,9 +63,15 @@ curl "$substituter/nix-cache-info" -v
 
 stage "get test packages"
 
-nix path-info --derivation --recursive "$PACKAGE_FOR_TEST" --verbose >derivers
+nix path-info --derivation --recursive "$PACKAGE_FOR_TEST" >derivers
 cat derivers | xargs nix build --no-link --print-out-paths >derived
-cat derivers derived >store_paths
+cat derived | xargs nix path-info --recursive >derived_closure
+cat derivers derived_closure >store_paths
+
+echo "derivers: $(cat derivers | wc -l)"
+echo "derived: $(cat derived | wc -l)"
+echo "derived_closure: $(cat derived_closure | wc -l)"
+echo "store_paths: $(cat store_paths | wc -l)"
 
 stage "push to packages"
 
@@ -96,7 +102,9 @@ nix store gc
 
 stage "get test package from registry"
 
-cat store_paths |
+# instantiate derivations again
+nix path-info --derivation --recursive "$PACKAGE_FOR_TEST" >/dev/null
+cat derived_closure |
   xargs nix build \
     --no-link \
     --max-jobs 0 \
