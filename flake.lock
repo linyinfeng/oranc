@@ -112,19 +112,17 @@
     },
     "rust-overlay": {
       "inputs": {
-        "flake-utils": [
-          "flake-utils"
-        ],
         "nixpkgs": [
           "nixpkgs"
-        ]
+        ],
+        "systems": "systems_2"
       },
       "locked": {
-        "lastModified": 1681697975,
-        "narHash": "sha256-47DFtN5PX05eD8ObImkSu2W0hyyZ5cK1Tl9EvmW2NnU=",
+        "lastModified": 1681750108,
+        "narHash": "sha256-5PF33+dVZhvh5Ly5geW6gC8uDKlHQKLqVxesWDBfFps=",
         "owner": "oxalica",
         "repo": "rust-overlay",
-        "rev": "ffe47b90076067ad5dc25fe739d95a463bdf3c59",
+        "rev": "cf102ae729aebb19ee9029ed51bc886a5cf6e056",
         "type": "github"
       },
       "original": {
@@ -146,6 +144,19 @@
         "owner": "nix-systems",
         "repo": "default",
         "type": "github"
+      }
+    },
+    "systems_2": {
+      "flake": false,
+      "locked": {
+        "lastModified": 1,
+        "narHash": "sha256-cyfZqnwhPNzdfQnmUUUVK5fon88TSm/0CwgE7Lf+LDU=",
+        "path": "./systems.nix",
+        "type": "path"
+      },
+      "original": {
+        "path": "./systems.nix",
+        "type": "path"
       }
     },
     "treefmt-nix": {
