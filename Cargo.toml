@@ -12,10 +12,8 @@ OCI Registry As Nix Cache
 warp = "*"
 reqwest = "*"
 hyper = "*"
-# wait for a release containing krustlet/oci-distribution#57 and #?
-# https://github.com/krustlet/oci-distribution/pull/57
-# https://github.com/krustlet/oci-distribution/pull/?
-oci-distribution = { git = "https://github.com/linyinfeng/oci-distribution" }
+# wait for a release containing krustlet/oci-distribution#57 and #71
+oci-distribution = { git = "https://github.com/krustlet/oci-distribution" }
 clap = { version = "*", features = [ "cargo", "derive" ] }
 tokio = {version = "*", features = [ "macros", "rt-multi-thread" ] }
 futures = "*"
