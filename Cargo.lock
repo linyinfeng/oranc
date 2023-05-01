@@ -1262,8 +1262,8 @@ dependencies = [
 
 [[package]]
 name = "oci-distribution"
-version = "0.9.4"
-source = "git+https://github.com/linyinfeng/oci-distribution#68fae451548cab360ba77a4208b0d6a04147523a"
+version = "0.10.0"
+source = "git+https://github.com/krustlet/oci-distribution#e10403ba99026bf104f3a125504566ee7411defe"
 dependencies = [
  "chrono",
  "futures",
