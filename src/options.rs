@@ -16,6 +16,7 @@ pub enum Commands {
     #[command(subcommand)]
     Tag(TagCommands),
     Push(PushOptions),
+    Completion(CompletionOptions),
 }
 
 #[derive(Clone, Debug, Parser)]
@@ -86,4 +87,10 @@ pub struct InitializeOptions {
     pub priority: u32,
     #[arg(short, long)]
     pub no_mass_query: bool,
+}
+
+#[derive(Clone, Debug, Parser)]
+#[command(about = "Generate shell completions")]
+pub struct CompletionOptions {
+    pub shell: clap_complete::Shell,
 }

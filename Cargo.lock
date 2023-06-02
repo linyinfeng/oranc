@@ -336,6 +336,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "clap_complete"
+version = "4.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a04ddfaacc3bc9e6ea67d024575fafc2a813027cf374b8f24f7bc233c6b6be12"
+dependencies = [
+ "clap",
+]
+
+[[package]]
 name = "clap_derive"
 version = "4.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1166,10 +1175,10 @@ dependencies = [
 [[package]]
 name = "oci-distribution"
 version = "0.10.0"
-source = "git+https://github.com/krustlet/oci-distribution#64986855ef0d692df3b270d23c4bee8c41d97c27"
+source = "git+https://github.com/krustlet/oci-distribution#9cdf76606d63462630ac01e4b04a87b30c13457a"
 dependencies = [
+ "bytes",
  "chrono",
- "futures",
  "futures-util",
  "http",
  "http-auth",
@@ -1183,7 +1192,6 @@ dependencies = [
  "sha2",
  "thiserror",
  "tokio",
- "tokio-util",
  "tracing",
  "unicase",
 ]
@@ -1256,6 +1264,7 @@ dependencies = [
  "async-tar",
  "bytes",
  "clap",
+ "clap_complete",
  "data-encoding",
  "ed25519-compact",
  "futures",
@@ -1821,7 +1830,6 @@ checksum = "806fe8c2c87eccc8b3267cbae29ed3ab2d0bd37fca70ab622e46aaa9375ddb7d"
 dependencies = [
  "bytes",
  "futures-core",
- "futures-io",
  "futures-sink",
  "pin-project-lite",
  "tokio",

@@ -56,6 +56,7 @@
           inherit src;
           nativeBuildInputs = with pkgs; [
             pkg-config
+            installShellFiles
           ];
           buildInputs = with pkgs; [
             openssl
@@ -66,7 +67,15 @@
         commonArgs = bareCommonArgs // {inherit cargoArtifacts;};
       in {
         packages = {
-          oranc = craneLib.buildPackage commonArgs;
+          oranc = craneLib.buildPackage (commonArgs
+            // {
+              postInstall = ''
+                installShellCompletion --cmd oranc \
+                  --bash <($out/bin/oranc completion bash) \
+                  --fish <($out/bin/oranc completion fish) \
+                  --zsh  <($out/bin/oranc completion zsh)
+              '';
+            });
           default = config.packages.oranc;
           dockerImage = pkgs.dockerTools.buildImage {
             name = "oranc";
