@@ -15,6 +15,7 @@ hyper = "*"
 # wait for a release containing krustlet/oci-distribution#57 and #71
 oci-distribution = { git = "https://github.com/krustlet/oci-distribution" }
 clap = { version = "*", features = [ "cargo", "derive" ] }
+clap_complete = "*"
 tokio = {version = "*", features = [ "macros", "rt-multi-thread" ] }
 futures = "*"
 tokio-util = {version = "*", features = [ ] }

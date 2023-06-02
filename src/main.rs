@@ -7,7 +7,7 @@ pub mod push;
 pub mod registry;
 pub mod server;
 
-use clap::Parser;
+use clap::{CommandFactory, Parser};
 
 use error::Error;
 use options::{Commands, Options};
@@ -40,6 +40,16 @@ async fn main_result(options: Options) -> Result<(), Error> {
         Commands::Server(server_options) => server::server_main(server_options).await?,
         Commands::Tag(key_commands) => key::key_main(key_commands).await?,
         Commands::Push(push_options) => push::push_main(push_options).await?,
+        Commands::Completion(completion_options) => {
+            generate_shell_completions(completion_options).await?
+        }
     }
+    Ok(())
+}
+
+async fn generate_shell_completions(gen_options: options::CompletionOptions) -> Result<(), Error> {
+    let mut cli = options::Options::command();
+    let mut stdout = std::io::stdout();
+    clap_complete::generate(gen_options.shell, &mut cli, "oranc", &mut stdout);
     Ok(())
 }

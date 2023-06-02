@@ -14,7 +14,6 @@ use hyper::Body;
 use oci_distribution::secrets::RegistryAuth;
 use once_cell::sync::Lazy;
 use regex::Regex;
-use tokio_util::io::ReaderStream;
 use warp::{Filter, Rejection, Reply};
 
 use crate::options::ServerOptions;
@@ -43,12 +42,11 @@ async fn get(
     } = get_layer_info(&mut registry_ctx, &location)
         .await?
         .ok_or(Error::ReferenceNotFound(location.clone()))?;
-    let blob = registry_ctx
+    let blob_stream = registry_ctx
         .client
-        .async_pull_blob(&location.reference(), &digest)
+        .pull_blob_stream(&location.reference(), &digest)
         .await
         .map_err(Error::OciDistribution)?;
-    let blob_stream = ReaderStream::new(blob);
     Ok(Response::builder()
         .status(StatusCode::OK)
         .header(header::CONTENT_TYPE, content_type)
