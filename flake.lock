@@ -155,11 +155,11 @@
         ]
       },
       "locked": {
-        "lastModified": 1689243103,
-        "narHash": "sha256-IfBt2AD8qCwZs+m6BlOGEitBIkVJ0iMscMueb6QYUk4=",
+        "lastModified": 1689581671,
+        "narHash": "sha256-TXYvLE6o0RDJhvNW/rE96BA/OuH4R6M+ljX0KrOBi7o=",
         "owner": "numtide",
         "repo": "treefmt-nix",
-        "rev": "f1dca68b908f3dd656b923b9fb62f7d755133662",
+        "rev": "f4ce7d8660f57fe94092cf113c1f550acf16be53",
         "type": "github"
       },
       "original": {
