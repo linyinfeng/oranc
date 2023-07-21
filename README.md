@@ -4,6 +4,11 @@ OCI Registry As Nix Cache.
 
 Use an OCI registry (typically, [ghcr.io](https://ghcr.io)) to distribute binary caches of your Nix packages!
 
+## Warning
+
+Tags, image manifests, and layers created by oranc are so different from other typical OCI repositories.
+So I don't know if it is an abuse of OCI registries. Pushing to [ghcr.io](https://ghcr.io) may violate the terms of service of GitHub.
+
 ## Usage
 
 Try [oranc.li7g.com](https://oranc.li7g.com). It's better to self-host an instance. If you do so, please replace all `oranc.li7g.com` below with your instance.
