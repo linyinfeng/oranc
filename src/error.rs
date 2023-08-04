@@ -76,6 +76,8 @@ pub enum Error {
         new: String,
         exists: String,
     },
+    #[error("nar error: {0}")]
+    Nar(#[from] nix_nar::NarError),
 }
 
 impl Error {
@@ -113,6 +115,7 @@ impl Error {
             Error::Ed25519(_) => StatusCode::BAD_REQUEST,
             Error::InvalidSigningKeyEnv(_) => StatusCode::BAD_REQUEST,
             Error::SignatureMismatch { .. } => StatusCode::BAD_REQUEST,
+            Error::Nar(_) => StatusCode::INTERNAL_SERVER_ERROR,
         }
     }
 }

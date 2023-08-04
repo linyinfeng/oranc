@@ -132,7 +132,7 @@ async fn push_one(
 
             let nar_info_filename = format!("{store_path_hash}.narinfo");
             let mut nar_data = vec![];
-            let mut nar_encoder = nix_nar::Encoder::new(&store_path);
+            let mut nar_encoder = nix_nar::Encoder::new(&store_path)?;
             io::copy(&mut nar_encoder, &mut nar_data)?;
             let nar_size = nar_data.len();
             let nar_hash = NixHash::hash_data(&nar_data[..]);
