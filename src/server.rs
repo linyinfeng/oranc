@@ -20,8 +20,9 @@ use crate::options::ServerOptions;
 
 const NO_SUCH_KEY_RESPONSE_BODY: &str = "<Error><Code>NoSuchKey</Code></Error>";
 
-static AUTH_PATTERN: Lazy<Regex> =
+static AWS_AUTH_PATTERN: Lazy<Regex> =
     Lazy::new(|| Regex::new("^AWS4-HMAC-SHA256 Credential=([^ /,]+)/.*$").unwrap());
+static BASIC_AUTH_PATTERN: Lazy<Regex> = Lazy::new(|| Regex::new("^Basic (.*)$").unwrap());
 static DECODED_PATTERN: Lazy<Regex> = Lazy::new(|| Regex::new("^([^:]+):(.+)$").unwrap());
 
 #[derive(Debug, Clone)]
@@ -81,22 +82,23 @@ fn registry_auth() -> impl Filter<Extract = (RegistryAuth,), Error = Rejection> 
 async fn parse_auth(opt: Option<String>) -> Result<RegistryAuth, Rejection> {
     match opt {
         None => Ok(RegistryAuth::Anonymous),
-        Some(original) => match AUTH_PATTERN.captures(&original) {
-            Some(captures) => {
-                let bytes = BASE64
-                    .decode(captures[1].as_bytes())
-                    .map_err(Error::Decode)?;
-                let decoded = String::from_utf8(bytes).map_err(Error::FromUtf8)?;
-                match DECODED_PATTERN.captures(&decoded) {
-                    Some(captures) => Ok(RegistryAuth::Basic(
-                        captures[1].to_string(),
-                        captures[2].to_string(),
-                    )),
-                    None => Err(Error::InvalidAuthorization(original).into()),
-                }
+        Some(original) => {
+            let captures = (BASIC_AUTH_PATTERN.captures(&original))
+                .or_else(|| AWS_AUTH_PATTERN.captures(&original));
+            let encoded = match &captures {
+                Some(c) => c[1].as_bytes(),
+                None => return Err(Error::InvalidAuthorization(original).into()),
+            };
+            let bytes = BASE64.decode(encoded).map_err(Error::Decode)?;
+            let decoded = String::from_utf8(bytes).map_err(Error::FromUtf8)?;
+            match DECODED_PATTERN.captures(&decoded) {
+                Some(captures) => Ok(RegistryAuth::Basic(
+                    captures[1].to_string(),
+                    captures[2].to_string(),
+                )),
+                None => Err(Error::InvalidAuthorization(original).into()),
             }
-            None => Err(Error::InvalidAuthorization(original).into()),
-        },
+        }
     }
 }
 

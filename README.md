@@ -11,7 +11,7 @@ So I don't know if it is an abuse of OCI registries. Pushing to [ghcr.io](https:
 
 ## Usage
 
-Try [oranc.li7g.com](https://oranc.li7g.com). It's better to self-host an instance. If you do so, please replace all `oranc.li7g.com` below with your instance.
+### Push to OCI registry
 
 1. Prepare your signing keys.
 
@@ -61,14 +61,35 @@ Try [oranc.li7g.com](https://oranc.li7g.com). It's better to self-host an instan
 
    Run `oranc push --help` for more options.
 
-6. Use your OCI registry as a cache.
+### Use OCI registries as substituters
 
-   In `nix.conf`:
+Try [oranc.li7g.com](https://oranc.li7g.com). It's better to self-host an instance. If you do so, please replace all `oranc.li7g.com` below with your instance.
 
-   ```text
-   substituters = https://oranc.li7g.com/{OCI_REGISTRY}/{OCI_REPOSITORY}
-   trusted-public-keys = {PUBLIC_KEY}
-   ```
+Add settings to `nix.conf`:
+
+```text
+substituters = https://oranc.li7g.com/{OCI_REGISTRY}/{OCI_REPOSITORY}
+trusted-public-keys = {PUBLIC_KEY}
+```
+
+or use NixOS configuration:
+
+```nix
+{ ... }:
+{
+  nix.settings = {
+    substituters = [ "https://oranc.li7g.com/{OCI_REGISTRY}/{OCI_REPOSITORY}" ];
+    trusted-public-keys = [ "{PUBLIC_KEY}" ];
+  };
+}
+```
+
+If your OCI registry requires authentication, HTTP basic authentication is supported:
+
+1. Add username and password to the substituter URL: `https://{ORANC_USERNAME}:{ORANC_PASSWORD}@oranc.li7g.com/{OCI_REGISTRY}/{OCI_REPOSITORY}`.
+2. Or use a netrc file <https://nixos.wiki/wiki/Enterprise>.
+
+**Your credential will be sent to the oranc server.** If you don't trust my instance, please host your own instance.
 
 ## Host oranc server
 
@@ -79,6 +100,8 @@ oranc server --listen "{LISTEN_ADDRESS}:{LISTEN_PORT}"
 ```
 
 Run `oranc server --help` for more options.
+
+A NixOS module (`github:linyinfeng/oranc#nixosModules.oranc`) and a nixpkgs overlay (`github:linyinfeng/oranc#overlays.oranc`) are provided.
 
 ## Limitations
 
