@@ -1242,7 +1242,7 @@ dependencies = [
 [[package]]
 name = "oci-distribution"
 version = "0.10.0"
-source = "git+https://github.com/krustlet/oci-distribution#6bf66a6c00321393439dbad695a9e89a09e51cc0"
+source = "git+https://github.com/krustlet/oci-distribution#eb768b61d7b9ede4c0753d0ea4117ce289865c5e"
 dependencies = [
  "bytes",
  "chrono",
@@ -1739,9 +1739,9 @@ dependencies = [
 
 [[package]]
 name = "sha2"
-version = "0.10.7"
+version = "0.10.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "479fb9d862239e610720565ca91403019f2f00410f1864c5aa7479b950a76ed8"
+checksum = "793db75ad2bcafc3ffa7c68b215fee268f537982cd901d132f89c6343f3a3dc8"
 dependencies = [
  "cfg-if",
  "cpufeatures",

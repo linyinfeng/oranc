@@ -164,7 +164,7 @@ pub async fn put(
         os: Os::None,
         config: None,
         rootfs,
-        history: vec![],
+        history: None,
     };
     let config_annotations = None;
     let config = Config::oci_v1_from_config_file(config_file, config_annotations)
