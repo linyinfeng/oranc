@@ -32,11 +32,11 @@
     "flake-compat": {
       "flake": false,
       "locked": {
-        "lastModified": 1673956053,
-        "narHash": "sha256-4gtG9iQuiKITOjNQQeQIpoIB6b16fm+504Ch3sNKLd8=",
+        "lastModified": 1696248941,
+        "narHash": "sha256-kKckR0W4w3UVReO2WTBaXT6A+vH1Wc38Cno3hN96tAY=",
         "owner": "edolstra",
         "repo": "flake-compat",
-        "rev": "35bb57c0c8d8b62bbfd284272c928ceb64ddbde9",
+        "rev": "e654cc30bf766535a28a95ad5683f50d1b5cf84a",
         "type": "github"
       },
       "original": {
