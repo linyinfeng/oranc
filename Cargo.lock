@@ -1232,7 +1232,7 @@ dependencies = [
 [[package]]
 name = "oci-distribution"
 version = "0.10.0"
-source = "git+https://github.com/krustlet/oci-distribution#5ff26dc4fc27e41e9e3e8873f6a5e8d51e0efc42"
+source = "git+https://github.com/krustlet/oci-distribution#26069b30dca5790aae093a69e559a5decb98aa36"
 dependencies = [
  "bytes",
  "chrono",
@@ -2370,18 +2370,18 @@ dependencies = [
 
 [[package]]
 name = "zerocopy"
-version = "0.7.11"
+version = "0.7.12"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4c19fae0c8a9efc6a8281f2e623db8af1db9e57852e04cde3e754dd2dc29340f"
+checksum = "8db0ac2df3d060f81ec0380ccc5b71c2a7c092cfced671feeee1320e95559c87"
 dependencies = [
  "zerocopy-derive",
 ]
 
 [[package]]
 name = "zerocopy-derive"
-version = "0.7.11"
+version = "0.7.12"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "fc56589e9ddd1f1c28d4b4b5c773ce232910a6bb67a70133d61c9e347585efe9"
+checksum = "6b6093bc6d5265ff40b479c834cdd25d8e20784781a2a29a8106327393d0a9ff"
 dependencies = [
  "proc-macro2",
  "quote",
