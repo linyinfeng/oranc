@@ -10,8 +10,10 @@ OCI Registry As Nix Cache
 
 [dependencies]
 warp = "*"
+# wait for warp with hyper and http 1.0
+hyper = "0"
+http = "0"
 reqwest = "*"
-hyper = "*"
 # wait for a release containing krustlet/oci-distribution#57 and #71
 oci-distribution = { git = "https://github.com/krustlet/oci-distribution" }
 clap = { version = "*", features = [ "cargo", "derive" ] }
@@ -22,7 +24,6 @@ tokio-util = {version = "*", features = [ ] }
 log = "*"
 pretty_env_logger = "*"
 thiserror = "*"
-http = "*"
 regex = "*"
 once_cell = "*"
 data-encoding = "*"
