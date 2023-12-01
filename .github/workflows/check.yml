@@ -123,7 +123,8 @@ jobs:
     - name: Get test packages from cache.nixos.org
       run: |
         nix path-info --derivation --recursive "$PACKAGE_FOR_TEST" > /tmp/derivers
-        cat /tmp/derivers | xargs nix build --no-link --print-out-paths > /tmp/derived
+
+        nix build "$PACKAGE_FOR_TEST" --no-link --print-out-paths > /tmp/derived
         cat /tmp/derived | xargs nix path-info --recursive > /tmp/derived_closure
         cat /tmp/derivers /tmp/derived_closure | sort | uniq > /tmp/store_paths
 
@@ -137,7 +138,7 @@ jobs:
 
         # sign first,then push with --already-signed
         # oranc will check generated signature matches already exists signature
-        cat /tmp/store_paths | \
+        cat /tmp/derived_closure | \
           xargs nix store sign --key-file /tmp/nix-key-pair/secret
 
         # push everything
@@ -151,7 +152,7 @@ jobs:
           --already-signed
     - name: Verify remote store
       run: |
-        cat /tmp/store_paths | \
+        cat /tmp/derived_closure | \
           xargs nix store verify \
           --store "$STORE_URL" \
           --trusted-public-keys "$(cat /tmp/nix-key-pair/public)"
@@ -162,7 +163,7 @@ jobs:
       run: |
         # instantiate derivations again
         nix path-info --derivation --recursive "$PACKAGE_FOR_TEST" > /dev/null
-        cat /tmp/derived_closure | \
+        cat /tmp/derived | \
           xargs nix build \
             --no-link \
             --max-jobs 0 \
@@ -170,6 +171,6 @@ jobs:
             --trusted-public-keys "$(cat /tmp/nix-key-pair/public)"
     - name: Verify local store
       run: |
-        cat /tmp/store_paths | \
+        cat /tmp/derived_closure | \
           xargs nix store verify \
           --trusted-public-keys "$(cat /tmp/nix-key-pair/public)"

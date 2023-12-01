@@ -12,6 +12,8 @@
   curl,
   findutils,
   shadow,
+  gnused,
+  tcping-go,
 }: let
   packageForTest = "github:nixos/nixpkgs/nixos-unstable#coreutils";
   composeFile = (formats.yaml {}).generate "container-compose-yml" {
@@ -24,6 +26,9 @@
         environment = [
           "EXTRA_ARGS=--no-ssl"
         ];
+        depends_on = {
+          registry = {condition = "service_started";};
+        };
       };
       oranc-test-script = {
         image = "oranc-test-script:${dockerImage.imageTag}";
@@ -54,6 +59,8 @@
         curl
         findutils
         shadow
+        tcping-go
+        gnused
         dockerTools.caCertificates
       ];
     };

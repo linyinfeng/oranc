@@ -52,7 +52,7 @@ stage "setting up variables..."
 
 registry="registry:5000"
 repository="test-user/oranc-cache"
-substituter="http://oranc/registry:5000/$repository"
+substituter="http://oranc/$registry/$repository"
 public_key="$(cat public)"
 export ORANC_SIGNING_KEY="$(cat secret)"
 
@@ -64,7 +64,7 @@ curl "$substituter/nix-cache-info" -v
 stage "get test packages"
 
 nix path-info --derivation --recursive "$PACKAGE_FOR_TEST" >derivers
-cat derivers | xargs nix build --no-link --print-out-paths >derived
+nix build "$PACKAGE_FOR_TEST" --no-link --print-out-paths >derived
 cat derived | xargs nix path-info --recursive >derived_closure
 cat derivers derived_closure >store_paths
 
@@ -80,7 +80,7 @@ cat store_paths
 
 # sign first, then push with --already-signed
 # oranc will check its signature matches already exists signature
-cat store_paths | xargs nix store sign --key-file secret --verbose
+cat derived_closure | xargs nix store sign --key-file secret --verbose
 cat store_paths |
   oranc push \
     --no-ssl \
@@ -104,7 +104,7 @@ stage "get test package from registry"
 
 # instantiate derivations again
 nix path-info --derivation --recursive "$PACKAGE_FOR_TEST" >/dev/null
-cat derived_closure |
+cat derived |
   xargs nix build \
     --no-link \
     --max-jobs 0 \
@@ -114,6 +114,6 @@ cat derived_closure |
 
 stage "verify local store"
 
-cat store_paths | xargs nix store verify \
+cat derived_closure | xargs nix store verify \
   --trusted-public-keys "$public_key" \
   --verbose
