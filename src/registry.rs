@@ -1,5 +1,10 @@
 use std::fmt;
 
+use crate::convert::EncodingOptions;
+use crate::{
+    error::Error,
+    options::{PushOptions, ServerOptions},
+};
 use maplit::hashmap;
 use oci_distribution::{
     client::{ClientConfig, ClientProtocol, Config, ImageLayer},
@@ -8,12 +13,6 @@ use oci_distribution::{
     manifest::OciImageManifest,
     secrets::RegistryAuth,
     Client, Reference,
-};
-
-use crate::{
-    convert::key_to_tag,
-    error::Error,
-    options::{PushOptions, ServerOptions},
 };
 
 pub const LAYER_MEDIA_TYPE: &str = "application/octet-stream";
@@ -30,6 +29,7 @@ pub struct RegistryOptions {
     pub no_ssl: bool,
     pub dry_run: bool,
     pub max_retry: usize,
+    pub encoding_options: EncodingOptions,
 }
 
 #[derive(Debug, Clone)]
@@ -47,17 +47,26 @@ pub struct OciItem {
 
 #[derive(Debug, Clone)]
 pub struct LayerInfo {
+    pub reference: Reference,
     pub digest: String,
     pub content_type: String,
 }
 
 impl OciLocation {
-    pub fn reference(&self) -> Reference {
-        Reference::with_tag(
-            self.registry.clone(),
-            self.repository.clone(),
-            key_to_tag(&self.key),
-        )
+    pub fn reference(&self, encoding_options: &EncodingOptions) -> (Reference, Vec<Reference>) {
+        let build_ref =
+            |tag| Reference::with_tag(self.registry.clone(), self.repository.clone(), tag);
+        let (main_tag, fallback_tags) = encoding_options.key_to_tag(&self.key);
+        let main = build_ref(main_tag);
+        let fallback_refs = fallback_tags.into_iter().map(build_ref).collect();
+        (main, fallback_refs)
+    }
+
+    pub fn references_merged(&self, encoding_options: &EncodingOptions) -> Vec<Reference> {
+        let (main, fallbacks) = self.reference(encoding_options);
+        let mut result = vec![main];
+        result.extend(fallbacks);
+        result
     }
 }
 
@@ -70,35 +79,54 @@ pub async fn get_layer_info(
         return Err(Error::InvalidMaxRetry(max_retry));
     }
 
-    let reference = location.reference();
+    let references = location.references_merged(&ctx.options.encoding_options);
     let mut pull_result = None;
     let mut errors = vec![];
-    for attempt in 1..max_retry {
-        log::debug!("pull image manifest {reference:?}, attempt {attempt}/{max_retry}");
-        match ctx.client.pull_image_manifest(&reference, &ctx.auth).await {
-            Ok(r) => pull_result = Some(r),
-            Err(OciDistributionError::ImageManifestNotFoundError(_)) => return Ok(None),
-            Err(OciDistributionError::RegistryError { envelope, .. })
-                if envelope
-                    .errors
-                    .iter()
-                    .all(|e| e.code == OciErrorCode::ManifestUnknown) =>
-            {
-                return Ok(None)
-            }
-            Err(oci_error) => {
-                let e = oci_error.into();
-                log::warn!(
-                    "pull image manifest {reference:?}, attempt {attempt}/{max_retry} failed: {}",
-                    e
-                );
-                errors.push(e);
+    'fallbacks: for reference in references {
+        let mut ref_errors = vec![];
+        'retries: for attempt in 1..max_retry {
+            log::debug!("pull image manifest {reference:?}, attempt {attempt}/{max_retry}");
+            match ctx.client.pull_image_manifest(&reference, &ctx.auth).await {
+                Ok(res) => {
+                    pull_result = Some((reference.clone(), res));
+                    break 'fallbacks;
+                }
+                Err(OciDistributionError::ImageManifestNotFoundError(_)) => break 'retries,
+                Err(OciDistributionError::RegistryError { envelope, .. })
+                    if envelope
+                        .errors
+                        .iter()
+                        .all(|e| e.code == OciErrorCode::ManifestUnknown) =>
+                {
+                    break 'retries
+                }
+                Err(oci_error) => {
+                    let e = oci_error.into();
+                    log::warn!(
+                        "pull image manifest {reference:?}, attempt {attempt}/{max_retry} failed: {}",
+                        e
+                    );
+                    ref_errors.push(e);
+                }
             }
         }
+        if ref_errors.len() == max_retry {
+            log::error!("pull image manifest {reference:?} failed");
+            // all reties failed
+            errors.extend(ref_errors);
+        }
     }
-    let (manifest, _hash) = match pull_result {
+    let (reference, (manifest, _hash)) = match pull_result {
         Some(r) => r,
-        None => return Err(Error::RetryAllFails(errors)),
+        None => {
+            if errors.is_empty() {
+                // all reference not found
+                return Ok(None);
+            } else {
+                // at least one reference failed
+                return Err(Error::RetryAllFails(errors));
+            }
+        }
     };
 
     match manifest.layers.len() {
@@ -124,6 +152,7 @@ pub async fn get_layer_info(
         }
     };
     let info = LayerInfo {
+        reference,
         digest: layer_manifest.digest.clone(),
         content_type: content_type.clone(),
     };
@@ -181,7 +210,7 @@ pub async fn put(
     if max_retry < 1 {
         return Err(Error::InvalidMaxRetry(max_retry));
     }
-    let reference = location.reference();
+    let (reference, _fallbacks) = location.reference(&ctx.options.encoding_options);
     let mut errors = vec![];
     for attempt in 1..max_retry {
         log::debug!("push {reference:?}, attempt {attempt}/{max_retry}");
@@ -220,6 +249,7 @@ impl RegistryOptions {
             dry_run: options.dry_run,
             max_retry: options.max_retry,
             no_ssl: options.no_ssl,
+            encoding_options: options.encoding_options.clone(),
         }
     }
 
@@ -228,6 +258,7 @@ impl RegistryOptions {
             dry_run: false,
             max_retry: options.max_retry,
             no_ssl: options.no_ssl,
+            encoding_options: options.encoding_options.clone(),
         }
     }
 

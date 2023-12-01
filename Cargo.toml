@@ -14,7 +14,7 @@ warp = "*"
 hyper = "0"
 http = "0"
 reqwest = "*"
-# wait for a release containing krustlet/oci-distribution#57 and #71
+# wait for a release containing krustlet/oci-distribution#57, #71, and #90
 oci-distribution = { git = "https://github.com/krustlet/oci-distribution" }
 clap = { version = "*", features = [ "cargo", "derive" ] }
 clap_complete = "*"
@@ -37,3 +37,4 @@ nix-base32 = "*"
 sha2 = "*"
 tempfile = "*"
 ed25519-compact = "*"
+urlencoding = "*"
