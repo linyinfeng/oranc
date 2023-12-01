@@ -12,13 +12,17 @@ pub enum Error {
     Http(#[from] http::Error),
     #[error("decode error: {0}")]
     Decode(#[from] data_encoding::DecodeError),
+    #[error("tag-to-key error: {0:?}")]
+    TagToKey(Vec<Error>),
+    #[error("invalid tag error: {0}")]
+    InvalidTag(String),
     #[error("from utf-8 error: {0}")]
     FromUtf8(#[from] FromUtf8Error),
     #[error("invalid authorization header: {0}")]
     InvalidAuthorization(String),
     #[error("oci distribution error: {0}")]
     OciDistribution(#[from] OciDistributionError),
-    #[error("invalid imag`e layer count: {0}")]
+    #[error("invalid image layer count: {0}")]
     InvalidLayerCount(usize),
     #[error("invalid image layer media type: {0}")]
     InvalidLayerMediaType(String),
@@ -85,6 +89,8 @@ impl Error {
         match self {
             Error::Http(_) => StatusCode::INTERNAL_SERVER_ERROR,
             Error::Decode(_) => StatusCode::BAD_REQUEST,
+            Error::TagToKey(_) => StatusCode::BAD_REQUEST,
+            Error::InvalidTag(_) => StatusCode::BAD_REQUEST,
             Error::FromUtf8(_) => StatusCode::BAD_REQUEST,
             Error::InvalidAuthorization(_) => StatusCode::BAD_REQUEST,
             Error::OciDistribution(_) => StatusCode::BAD_REQUEST,

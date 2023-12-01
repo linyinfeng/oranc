@@ -1,7 +1,10 @@
 use clap::{Parser, Subcommand};
 use regex::Regex;
+use reqwest::Url;
 
 use std::net::SocketAddr;
+
+use crate::convert::EncodingOptions;
 
 #[derive(Clone, Debug, Parser)]
 #[command(author, version, about, long_about = None)]
@@ -28,15 +31,39 @@ pub struct ServerOptions {
     pub max_retry: usize,
     #[arg(long, help = "disable ssl")]
     pub no_ssl: bool,
+    #[arg(short, long, value_name = "URL", help = "upstream cache URLs")]
+    pub upstream: Vec<Url>,
+    #[arg(
+        short,
+        long,
+        value_name = "PATTERN",
+        default_value = "nix-cache-info",
+        help = "ignored file matched when querying upstream"
+    )]
+    pub ignore_upstream: Regex,
+    #[arg(long, help = "upstream anonymous queries")]
+    pub upstream_anonymous: bool,
+    #[clap(flatten)]
+    pub encoding_options: EncodingOptions,
 }
 
 #[derive(Clone, Debug, Subcommand)]
 #[command(about = "Command line tools for tag-key conversion")]
 pub enum TagCommands {
     #[command(about = "Encode a key to tag")]
-    Encode { key: String },
+    Encode {
+        key: String,
+        #[arg(long)]
+        fallbacks: bool,
+        #[clap(flatten)]
+        encoding_options: EncodingOptions,
+    },
     #[command(about = "Decode a tag to key")]
-    Decode { tag: String },
+    Decode {
+        tag: String,
+        #[clap(flatten)]
+        encoding_options: EncodingOptions,
+    },
 }
 
 #[derive(Clone, Debug, Parser)]
@@ -71,6 +98,8 @@ pub struct PushOptions {
     pub allow_immutable_db: bool,
     #[arg(long, help = "disable ssl")]
     pub no_ssl: bool,
+    #[clap(flatten)]
+    pub encoding_options: EncodingOptions,
     #[command(subcommand)]
     pub subcommand: Option<PushSubcommands>,
 }
