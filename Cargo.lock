@@ -1308,7 +1308,7 @@ dependencies = [
 [[package]]
 name = "oci-distribution"
 version = "0.10.0"
-source = "git+https://github.com/krustlet/oci-distribution#513090f62f7b8e05f8f85a644e9e0945b2880932"
+source = "git+https://github.com/krustlet/oci-distribution#2de82860e89d0c68dde6ab560c0c2fef3811bfda"
 dependencies = [
  "bytes",
  "chrono",
