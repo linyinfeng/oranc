@@ -13,7 +13,7 @@ warp = "*"
 # wait for warp with hyper and http 1.0
 hyper = "0"
 http = "0"
-reqwest = "*"
+reqwest = "0.11"
 oci-distribution = "*"
 clap = { version = "*", features = [ "cargo", "derive" ] }
 clap_complete = "*"
