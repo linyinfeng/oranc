@@ -410,9 +410,9 @@ dependencies = [
 
 [[package]]
 name = "clap_complete"
-version = "4.5.10"
+version = "4.5.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "dbeb5ae3a578b7f639911ed31e98a48e16ef6f44e62d275184bb755a093fea55"
+checksum = "c6ae69fbb0833c6fcd5a8d4b8609f108c7ad95fc11e248d853ff2c42a90df26a"
 dependencies = [
  "clap",
 ]
@@ -2193,9 +2193,9 @@ checksum = "accd4ea62f7bb7a82fe23066fb0957d48ef677f6eeb8215f372f52e48bb32426"
 
 [[package]]
 name = "version_check"
-version = "0.9.4"
+version = "0.9.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "49874b5167b65d7193b8aba1567f5c7d93d001cafc34600cee003eda787e483f"
+checksum = "0b928f33d975fc6ad9f86c8f283853ad26bdd5b10b7f1542aa2fa15e2289105a"
 
 [[package]]
 name = "waker-fn"
