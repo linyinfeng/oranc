@@ -1,11 +1,12 @@
 {
   stdenvNoCC,
-  substituteAll,
+  replaceVars,
   formats,
   dockerImage,
   oranc,
   dockerTools,
   nix,
+  bash,
   tini,
   buildEnv,
   coreutils,
@@ -49,9 +50,7 @@ let
       };
     };
   };
-  testScript = substituteAll {
-    src = ./test.sh;
-    isExecutable = true;
+  testScript = replaceVars ./test.sh {
     inherit (stdenvNoCC) shell;
   };
   testScriptDockerImage = dockerTools.buildImageWithNixDb {
@@ -76,7 +75,10 @@ let
         "${tini}/bin/tini"
         "--"
       ];
-      Cmd = [ "${testScript}" ];
+      Cmd = [
+        "${bash}/bin/bash"
+        "${testScript}"
+      ];
       Env = [
         "RUST_LOG=oranc=info"
         # required by nix
@@ -84,9 +86,7 @@ let
       ];
     };
   };
-  driver = substituteAll {
-    src = ./driver.sh;
-    isExecutable = true;
+  driver = replaceVars ./driver.sh {
     inherit (stdenvNoCC) shell;
     inherit composeFile dockerImage testScriptDockerImage;
   };
