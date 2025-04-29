@@ -1,18 +1,18 @@
 use crate::error::Error;
 use crate::registry;
-use crate::registry::get_layer_info;
 use crate::registry::LayerInfo;
 use crate::registry::OciItem;
 use crate::registry::OciLocation;
 use crate::registry::RegistryOptions;
+use crate::registry::get_layer_info;
 
 pub mod upstream;
 
 use bytes::Bytes;
 use data_encoding::BASE64;
-use http::header;
 use http::Response;
 use http::StatusCode;
+use http::header;
 use hyper::Body;
 
 use oci_distribution::secrets::RegistryAuth;
