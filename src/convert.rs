@@ -248,7 +248,7 @@ mod test {
             "_test-测试_",
             "._test-测试_.",
             "._test-测试_.测试",
-            "realisations/sha256:67890e0958e5d1a2944a3389151472a9acde025c7812f68381a7eef0d82152d1!libgcc.doi"
+            "realisations/sha256:67890e0958e5d1a2944a3389151472a9acde025c7812f68381a7eef0d82152d1!libgcc.doi",
         ];
         for s in test_strings {
             assert_eq!(

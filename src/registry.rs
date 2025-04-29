@@ -7,12 +7,12 @@ use crate::{
 };
 use maplit::hashmap;
 use oci_distribution::{
+    Client, Reference,
     client::{ClientConfig, ClientProtocol, Config, ImageLayer},
     config::{Architecture, ConfigFile, Os, Rootfs},
     errors::{OciDistributionError, OciErrorCode},
     manifest::OciImageManifest,
     secrets::RegistryAuth,
-    Client, Reference,
 };
 
 pub const LAYER_MEDIA_TYPE: &str = "application/octet-stream";
@@ -98,7 +98,7 @@ pub async fn get_layer_info(
                         .iter()
                         .all(|e| e.code == OciErrorCode::ManifestUnknown) =>
                 {
-                    break 'retries
+                    break 'retries;
                 }
                 Err(oci_error) => {
                     let e = oci_error.into();
@@ -148,7 +148,7 @@ pub async fn get_layer_info(
         None => {
             return Err(Error::NoLayerAnnotationKey(
                 CONTENT_TYPE_ANNOTATION.to_string(),
-            ))
+            ));
         }
     };
     let info = LayerInfo {
