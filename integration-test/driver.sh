@@ -24,10 +24,16 @@ function cleanup {
 
   sudo "${docker_compose[@]}" down
 }
-trap "cleanup" SIGINT
+trap "cleanup" EXIT
 
 echo
 echo "docker compose up..."
 echo
 
-sudo "${docker_compose[@]}" up
+sudo "${docker_compose[@]}" up --detach
+
+echo
+echo "docker compose logs..."
+echo
+
+sudo "${docker_compose[@]}" logs oranc oranc-test-script --names --timestamps --follow
