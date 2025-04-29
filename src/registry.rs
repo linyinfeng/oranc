@@ -98,7 +98,7 @@ pub async fn get_layer_info(
                         .iter()
                         .all(|e| e.code == OciErrorCode::ManifestUnknown) =>
                 {
-                    break 'retries
+                    break 'retries;
                 }
                 Err(oci_error) => {
                     let e = oci_error.into();
@@ -148,7 +148,7 @@ pub async fn get_layer_info(
         None => {
             return Err(Error::NoLayerAnnotationKey(
                 CONTENT_TYPE_ANNOTATION.to_string(),
-            ))
+            ));
         }
     };
     let info = LayerInfo {

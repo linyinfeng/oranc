@@ -1,11 +1,12 @@
 {
   stdenvNoCC,
-  substituteAll,
+  replaceVars,
   formats,
   dockerImage,
   oranc,
   dockerTools,
   nix,
+  bash,
   tini,
   buildEnv,
   coreutils,
@@ -14,9 +15,10 @@
   shadow,
   gnused,
   tcping-go,
-}: let
+}:
+let
   packageForTest = "github:nixos/nixpkgs/nixos-unstable#coreutils";
-  composeFile = (formats.yaml {}).generate "container-compose-yml" {
+  composeFile = (formats.yaml { }).generate "container-compose-yml" {
     services = {
       registry = {
         image = "registry";
@@ -27,7 +29,9 @@
           "EXTRA_ARGS=--no-ssl"
         ];
         depends_on = {
-          registry = {condition = "service_started";};
+          registry = {
+            condition = "service_started";
+          };
         };
       };
       oranc-test-script = {
@@ -36,15 +40,17 @@
           "PACKAGE_FOR_TEST=${packageForTest}"
         ];
         depends_on = {
-          registry = {condition = "service_started";};
-          oranc = {condition = "service_started";};
+          registry = {
+            condition = "service_started";
+          };
+          oranc = {
+            condition = "service_started";
+          };
         };
       };
     };
   };
-  testScript = substituteAll {
-    src = ./test.sh;
-    isExecutable = true;
+  testScript = replaceVars ./test.sh {
     inherit (stdenvNoCC) shell;
   };
   testScriptDockerImage = dockerTools.buildImageWithNixDb {
@@ -65,8 +71,14 @@
       ];
     };
     config = {
-      Entrypoint = ["${tini}/bin/tini" "--"];
-      Cmd = ["${testScript}"];
+      Entrypoint = [
+        "${tini}/bin/tini"
+        "--"
+      ];
+      Cmd = [
+        "${bash}/bin/bash"
+        "${testScript}"
+      ];
       Env = [
         "RUST_LOG=oranc=info"
         # required by nix
@@ -74,17 +86,15 @@
       ];
     };
   };
-  driver = substituteAll {
-    src = ./driver.sh;
-    isExecutable = true;
+  driver = replaceVars ./driver.sh {
     inherit (stdenvNoCC) shell;
     inherit composeFile dockerImage testScriptDockerImage;
   };
 in
-  stdenvNoCC.mkDerivation (self: {
-    name = "oranc-integration-test";
-    dontUnpack = true;
-    installPhase = ''
-      install -D "${driver}" "$out/bin/${self.name}"
-    '';
-  })
+stdenvNoCC.mkDerivation (self: {
+  name = "oranc-integration-test";
+  dontUnpack = true;
+  installPhase = ''
+    install -D "${driver}" "$out/bin/${self.name}"
+  '';
+})

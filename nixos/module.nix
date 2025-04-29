@@ -3,9 +3,11 @@
   pkgs,
   lib,
   ...
-}: let
+}:
+let
   cfg = config.services.oranc;
-in {
+in
+{
   options = {
     services.oranc = {
       enable = lib.mkEnableOption "oranc";
@@ -33,7 +35,7 @@ in {
       };
       extraArgs = lib.mkOption {
         type = with lib.types; listOf str;
-        default = [];
+        default = [ ];
         description = ''
           Extra command-line arguments pass to oranc.
         '';
@@ -49,7 +51,7 @@ in {
         DynamicUser = true;
       };
       environment.RUST_LOG = cfg.log;
-      wantedBy = ["multi-user.target"];
+      wantedBy = [ "multi-user.target" ];
     };
   };
 }
