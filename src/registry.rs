@@ -7,12 +7,12 @@ use crate::{
 };
 use maplit::hashmap;
 use oci_distribution::{
+    Client, Reference,
     client::{ClientConfig, ClientProtocol, Config, ImageLayer},
     config::{Architecture, ConfigFile, Os, Rootfs},
     errors::{OciDistributionError, OciErrorCode},
     manifest::OciImageManifest,
     secrets::RegistryAuth,
-    Client, Reference,
 };
 
 pub const LAYER_MEDIA_TYPE: &str = "application/octet-stream";
