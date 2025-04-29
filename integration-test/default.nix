@@ -14,9 +14,10 @@
   shadow,
   gnused,
   tcping-go,
-}: let
+}:
+let
   packageForTest = "github:nixos/nixpkgs/nixos-unstable#coreutils";
-  composeFile = (formats.yaml {}).generate "container-compose-yml" {
+  composeFile = (formats.yaml { }).generate "container-compose-yml" {
     services = {
       registry = {
         image = "registry";
@@ -27,7 +28,9 @@
           "EXTRA_ARGS=--no-ssl"
         ];
         depends_on = {
-          registry = {condition = "service_started";};
+          registry = {
+            condition = "service_started";
+          };
         };
       };
       oranc-test-script = {
@@ -36,8 +39,12 @@
           "PACKAGE_FOR_TEST=${packageForTest}"
         ];
         depends_on = {
-          registry = {condition = "service_started";};
-          oranc = {condition = "service_started";};
+          registry = {
+            condition = "service_started";
+          };
+          oranc = {
+            condition = "service_started";
+          };
         };
       };
     };
@@ -65,8 +72,11 @@
       ];
     };
     config = {
-      Entrypoint = ["${tini}/bin/tini" "--"];
-      Cmd = ["${testScript}"];
+      Entrypoint = [
+        "${tini}/bin/tini"
+        "--"
+      ];
+      Cmd = [ "${testScript}" ];
       Env = [
         "RUST_LOG=oranc=info"
         # required by nix
@@ -81,10 +91,10 @@
     inherit composeFile dockerImage testScriptDockerImage;
   };
 in
-  stdenvNoCC.mkDerivation (self: {
-    name = "oranc-integration-test";
-    dontUnpack = true;
-    installPhase = ''
-      install -D "${driver}" "$out/bin/${self.name}"
-    '';
-  })
+stdenvNoCC.mkDerivation (self: {
+  name = "oranc-integration-test";
+  dontUnpack = true;
+  installPhase = ''
+    install -D "${driver}" "$out/bin/${self.name}"
+  '';
+})
