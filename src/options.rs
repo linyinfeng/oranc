@@ -27,6 +27,8 @@ pub enum Commands {
 pub struct ServerOptions {
     #[arg(short, long, default_value = "[::]:8080")]
     pub listen: SocketAddr,
+    #[arg(short, long, value_name = "NUM", default_value = "2")]
+    pub repository_parts: usize,
     #[arg(short, long, value_name = "NUM", default_value = "3")]
     pub max_retry: usize,
     #[arg(long, help = "disable ssl")]

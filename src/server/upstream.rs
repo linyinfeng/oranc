@@ -1,10 +1,7 @@
-use std::path::PathBuf;
-
-use http::{Response, StatusCode};
-use hyper::Body;
-use oci_distribution::secrets::RegistryAuth;
+use axum::{body::Body, response::Response};
+use http::StatusCode;
+use oci_client::secrets::RegistryAuth;
 use reqwest::Url;
-use warp::Rejection;
 
 use crate::error::Error;
 
@@ -14,7 +11,7 @@ pub async fn check_and_redirect(
     ctx: &ServerContext,
     key: &str,
     auth: &RegistryAuth,
-) -> Result<Option<Response<Body>>, Rejection> {
+) -> Result<Option<Response<Body>>, Error> {
     match check(ctx, key, auth).await? {
         Some(url) => Ok(Some(redirect_response(key, &url)?)),
         None => Ok(None),
@@ -44,12 +41,7 @@ pub async fn check(
     for upstream in &ctx.options.upstream {
         let url = upstream_url(upstream, key)?;
         for attempt in 1..max_retry {
-            let response = ctx
-                .http_client
-                .head(url.clone())
-                .send()
-                .await
-                .map_err(Error::Reqwest)?;
+            let response = ctx.http_client.head(url.clone()).send().await?;
             if response.status() == StatusCode::OK {
                 return Ok(Some(url));
             } else if response.status() == StatusCode::NOT_FOUND {
@@ -66,23 +58,20 @@ pub async fn check(
 }
 
 pub fn upstream_url(base: &Url, key: &str) -> Result<Url, Error> {
-    let path = base.path();
-    let new_path = PathBuf::from(path).join(key);
-    match new_path.to_str() {
-        Some(p) => {
-            let mut upstream = base.clone();
-            upstream.set_path(p);
-            Ok(upstream)
-        }
-        None => Err(Error::InvalidPath(new_path)),
+    let mut upstream = base.clone();
+    {
+        let mut segments = upstream
+            .path_segments_mut()
+            .map_err(|_| Error::UpstreamCanNotBeBase(base.clone()))?;
+        segments.push(key);
     }
+    Ok(upstream)
 }
 
 pub fn redirect_response(key: &str, url: &Url) -> Result<Response<Body>, Error> {
     log::info!("redirect: key = {key}, url = {url}");
-    Response::builder()
+    Ok(Response::builder()
         .status(StatusCode::FOUND)
         .header(http::header::LOCATION, url.to_string())
-        .body(Body::empty())
-        .map_err(Error::Http)
+        .body(Body::empty())?)
 }

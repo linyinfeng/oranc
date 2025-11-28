@@ -18,7 +18,7 @@
 }:
 let
   packageForTest = "github:nixos/nixpkgs/nixos-unstable#coreutils";
-  composeFile = (formats.yaml { }).generate "container-compose-yml" {
+  composeFile = (formats.yaml { }).generate "container-compose.yml" {
     services = {
       registry = {
         image = "registry";
@@ -27,6 +27,7 @@ let
         image = "oranc:${dockerImage.imageTag}";
         environment = [
           "EXTRA_ARGS=--no-ssl"
+          "RUST_LOG=oranc=info"
         ];
         depends_on = {
           registry = {
@@ -96,5 +97,6 @@ stdenvNoCC.mkDerivation (self: {
   dontUnpack = true;
   installPhase = ''
     install -D "${driver}" "$out/bin/${self.name}"
+    install -D "${composeFile}" "$out/share/oranc/container-compose.yml"
   '';
 })

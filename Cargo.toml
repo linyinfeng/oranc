@@ -9,12 +9,12 @@ OCI Registry As Nix Cache
 """
 
 [dependencies]
-warp = "*"
-# wait for warp with hyper and http 1.0
-hyper = "0"
-http = "0"
-reqwest = "0.11"
-oci-distribution = "0.10"
+axum = "*"
+axum-extra = { version = "*", features = ["typed-header"] }
+hyper = "*"
+http = "*"
+reqwest = "*"
+oci-client = "*"
 clap = { version = "*", features = [ "cargo", "derive" ] }
 clap_complete = "*"
 tokio = {version = "*", features = [ "macros", "rt-multi-thread" ] }

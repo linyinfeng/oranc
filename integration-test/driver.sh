@@ -8,7 +8,7 @@ if which podman >/dev/null; then
   prog_docker="podman"
   prog_docker_compose="podman-compose"
 fi
-docker_compose=("$prog_docker_compose" "--file" "@composeFile@")
+docker_compose=("$prog_docker_compose" "--file" "@composeFile@" "--podman-run-args" "--env-file integration-test.env")
 
 echo
 echo "build and load docker image..."
