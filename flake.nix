@@ -9,9 +9,6 @@
     treefmt-nix.inputs.nixpkgs.follows = "nixpkgs";
 
     crane.url = "github:ipetkov/crane";
-
-    flake-compat.url = "github:edolstra/flake-compat";
-    flake-compat.flake = false;
   };
 
   outputs =
@@ -145,6 +142,7 @@
                 nixfmt.enable = true;
                 rustfmt.enable = true;
                 shfmt.enable = true;
+                prettier.enable = true;
               };
             };
             devShells.default = pkgs.mkShell {

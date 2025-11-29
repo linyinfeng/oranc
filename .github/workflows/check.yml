@@ -8,19 +8,19 @@ jobs:
   check:
     runs-on: ubuntu-latest
     steps:
-    - name: Checkout
-      uses: actions/checkout@main
-    - name: Install nix
-      uses: cachix/install-nix-action@master
-      with:
-        github_access_token: '${{ secrets.GITHUB_TOKEN }}'
-    - name: Setup cachix
-      uses: cachix/cachix-action@master
-      with:
-        name: linyinfeng
-        signingKey: '${{ secrets.CACHIX_SIGNING_KEY }}'
-    - name: Nix flake check
-      run: nix flake check
+      - name: Checkout
+        uses: actions/checkout@main
+      - name: Install nix
+        uses: cachix/install-nix-action@master
+        with:
+          github_access_token: "${{ secrets.GITHUB_TOKEN }}"
+      - name: Setup cachix
+        uses: cachix/cachix-action@master
+        with:
+          name: linyinfeng
+          signingKey: "${{ secrets.CACHIX_SIGNING_KEY }}"
+      - name: Nix flake check
+        run: nix flake check
 
   upload-docker-image:
     if: ${{ github.event_name == 'push' }}
@@ -32,46 +32,46 @@ jobs:
     outputs:
       image_tag: ${{ steps.upload.outputs.image_tag }}
     steps:
-    - name: Checkout
-      uses: actions/checkout@main
-    - name: Install nix
-      uses: cachix/install-nix-action@master
-      with:
-        github_access_token: '${{ secrets.GITHUB_TOKEN }}'
-    - name: Setup cachix
-      uses: cachix/cachix-action@master
-      with:
-        name: linyinfeng
-        signingKey: '${{ secrets.CACHIX_SIGNING_KEY }}'
-    - name: Upload docker image
-      id: upload
-      run: |
-        image_archive=$(nix build .#dockerImage --no-link --print-out-paths)
-        function push_to {
-          echo "push to '$1'"
-          skopeo copy \
-            --dest-creds "${{ github.actor }}:${{ secrets.GITHUB_TOKEN }}" \
-            "docker-archive:$image_archive" \
-            "$1"
-        }
-        tag=$(nix eval .#dockerImage.imageTag --raw)
-        echo "image_tag=$tag" >> $GITHUB_OUTPUT
+      - name: Checkout
+        uses: actions/checkout@main
+      - name: Install nix
+        uses: cachix/install-nix-action@master
+        with:
+          github_access_token: "${{ secrets.GITHUB_TOKEN }}"
+      - name: Setup cachix
+        uses: cachix/cachix-action@master
+        with:
+          name: linyinfeng
+          signingKey: "${{ secrets.CACHIX_SIGNING_KEY }}"
+      - name: Upload docker image
+        id: upload
+        run: |
+          image_archive=$(nix build .#dockerImage --no-link --print-out-paths)
+          function push_to {
+            echo "push to '$1'"
+            skopeo copy \
+              --dest-creds "${{ github.actor }}:${{ secrets.GITHUB_TOKEN }}" \
+              "docker-archive:$image_archive" \
+              "$1"
+          }
+          tag=$(nix eval .#dockerImage.imageTag --raw)
+          echo "image_tag=$tag" >> $GITHUB_OUTPUT
 
-        all_tags=("$tag")
-        if [ "${{ github.ref_type }}" = "branch" ]; then
-          if [ "${{ github.ref_name }}" = "main" ]; then
-            all_tags+=("latest" "main")
+          all_tags=("$tag")
+          if [ "${{ github.ref_type }}" = "branch" ]; then
+            if [ "${{ github.ref_name }}" = "main" ]; then
+              all_tags+=("latest" "main")
+            fi
+            if [ "${{ github.ref_name }}" = "develop" ]; then
+              all_tags+=("develop" "develop-$(date +%F)")
+            fi
           fi
-          if [ "${{ github.ref_name }}" = "develop" ]; then
-            all_tags+=("develop" "develop-$(date +%F)")
+          if [ "${{ github.ref_type }}" = "tag" ]; then
+            all_tags+=("${{ github.ref_name }}")
           fi
-        fi
-        if [ "${{ github.ref_type }}" = "tag" ]; then
-          all_tags+=("${{ github.ref_name }}")
-        fi
-        for t in "${all_tags[@]}"; do
-          push_to "docker://ghcr.io/linyinfeng/oranc:$t"
-        done
+          for t in "${all_tags[@]}"; do
+            push_to "docker://ghcr.io/linyinfeng/oranc:$t"
+          done
 
   integration-test:
     strategy:
@@ -99,90 +99,90 @@ jobs:
         ports:
           - 5000:5000
     steps:
-    - name: Checkout
-      uses: actions/checkout@main
-    - name: Install nix
-      uses: cachix/install-nix-action@master
-      with:
-        github_access_token: '${{ secrets.GITHUB_TOKEN }}'
-    - name: Registry health check
-      run: curl -v "http://$REGISTRY"
-    - name: Oranc server health check
-      run: curl -v "http://$ORANC"
-    - name: Generate key pair
-      run: |
-        mkdir -p /tmp/nix-key-pair
-        nix key generate-secret --key-name "oranc-test" > /tmp/nix-key-pair/secret
-        cat /tmp/nix-key-pair/secret | nix key convert-secret-to-public > /tmp/nix-key-pair/public
+      - name: Checkout
+        uses: actions/checkout@main
+      - name: Install nix
+        uses: cachix/install-nix-action@master
+        with:
+          github_access_token: "${{ secrets.GITHUB_TOKEN }}"
+      - name: Registry health check
+        run: curl -v "http://$REGISTRY"
+      - name: Oranc server health check
+        run: curl -v "http://$ORANC"
+      - name: Generate key pair
+        run: |
+          mkdir -p /tmp/nix-key-pair
+          nix key generate-secret --key-name "oranc-test" > /tmp/nix-key-pair/secret
+          cat /tmp/nix-key-pair/secret | nix key convert-secret-to-public > /tmp/nix-key-pair/public
 
-        echo "secret key for test: $(cat /tmp/nix-key-pair/secret)"
-        echo "public key for test: $(cat /tmp/nix-key-pair/public)"
-    - name: Install oranc
-      run: |
-        nix build .#oranc \
-          --extra-substituters "$CACHIX_SUBSTITUTER" \
-          --extra-trusted-public-keys "$CACHIX_PUBLIC_KEY" \
-          --out-link /tmp/oranc
-    - name: Initialize registry
-      run: |
-        /tmp/oranc/bin/oranc \
-          push \
-          --no-ssl \
-          --registry "$REGISTRY" \
-          --repository "$REPOSITORY" \
-          initialize
-        curl -v "$STORE_URL/nix-cache-info"
-    - name: Get test packages from cache.nixos.org
-      run: |
-        nix path-info --derivation --recursive "$PACKAGE_FOR_TEST" > /tmp/derivers
+          echo "secret key for test: $(cat /tmp/nix-key-pair/secret)"
+          echo "public key for test: $(cat /tmp/nix-key-pair/public)"
+      - name: Install oranc
+        run: |
+          nix build .#oranc \
+            --extra-substituters "$CACHIX_SUBSTITUTER" \
+            --extra-trusted-public-keys "$CACHIX_PUBLIC_KEY" \
+            --out-link /tmp/oranc
+      - name: Initialize registry
+        run: |
+          /tmp/oranc/bin/oranc \
+            push \
+            --no-ssl \
+            --registry "$REGISTRY" \
+            --repository "$REPOSITORY" \
+            initialize
+          curl -v "$STORE_URL/nix-cache-info"
+      - name: Get test packages from cache.nixos.org
+        run: |
+          nix path-info --derivation --recursive "$PACKAGE_FOR_TEST" > /tmp/derivers
 
-        nix build "$PACKAGE_FOR_TEST" --no-link --print-out-paths > /tmp/derived
-        cat /tmp/derived | xargs nix path-info --recursive > /tmp/derived_closure
-        cat /tmp/derivers /tmp/derived_closure | sort | uniq > /tmp/store_paths
+          nix build "$PACKAGE_FOR_TEST" --no-link --print-out-paths > /tmp/derived
+          cat /tmp/derived | xargs nix path-info --recursive > /tmp/derived_closure
+          cat /tmp/derivers /tmp/derived_closure | sort | uniq > /tmp/store_paths
 
-        echo "derivers: $(cat /tmp/derivers | wc -l)"
-        echo "derived: $(cat /tmp/derived | wc -l)"
-        echo "derived closure: $(cat /tmp/derived_closure | wc -l)"
-        echo "store paths: $(cat /tmp/store_paths | wc -l)"
-    - name: Push to cache
-      run: |
-        export ORANC_SIGNING_KEY="$(cat /tmp/nix-key-pair/secret)"
+          echo "derivers: $(cat /tmp/derivers | wc -l)"
+          echo "derived: $(cat /tmp/derived | wc -l)"
+          echo "derived closure: $(cat /tmp/derived_closure | wc -l)"
+          echo "store paths: $(cat /tmp/store_paths | wc -l)"
+      - name: Push to cache
+        run: |
+          export ORANC_SIGNING_KEY="$(cat /tmp/nix-key-pair/secret)"
 
-        # sign first,then push with --already-signed
-        # oranc will check generated signature matches already exists signature
-        cat /tmp/derived_closure | \
-          xargs nix store sign --key-file /tmp/nix-key-pair/secret
+          # sign first,then push with --already-signed
+          # oranc will check generated signature matches already exists signature
+          cat /tmp/derived_closure | \
+            xargs nix store sign --key-file /tmp/nix-key-pair/secret
 
-        # push everything
-        cat /tmp/store_paths | \
-        sudo -E /tmp/oranc/bin/oranc \
-          push \
-          --no-ssl \
-          --registry "$REGISTRY" \
-          --repository "$REPOSITORY" \
-          --excluded-signing-key-pattern '^$' \
-          --already-signed
-    - name: Verify remote store
-      run: |
-        cat /tmp/derived_closure | \
-          xargs nix store verify \
-          --store "$STORE_URL" \
-          --trusted-public-keys "$(cat /tmp/nix-key-pair/public)"
-    - name: GC local store
-      run: |
-        nix store gc
-    - name: Get test packages from registry
-      run: |
-        # instantiate derivations again
-        nix path-info --derivation --recursive "$PACKAGE_FOR_TEST" > /dev/null
-        cat /tmp/derived | \
-          xargs nix build \
-            --no-link \
-            --max-jobs 0 \
-            --substituters "$STORE_URL" \
+          # push everything
+          cat /tmp/store_paths | \
+          sudo -E /tmp/oranc/bin/oranc \
+            push \
+            --no-ssl \
+            --registry "$REGISTRY" \
+            --repository "$REPOSITORY" \
+            --excluded-signing-key-pattern '^$' \
+            --already-signed
+      - name: Verify remote store
+        run: |
+          cat /tmp/derived_closure | \
+            xargs nix store verify \
+            --store "$STORE_URL" \
             --trusted-public-keys "$(cat /tmp/nix-key-pair/public)"
-    - name: Verify local store
-      run: |
-        cat /tmp/derived_closure | \
-          xargs nix store verify \
-          --trusted-public-keys "$(cat /tmp/nix-key-pair/public)"
+      - name: GC local store
+        run: |
+          nix store gc
+      - name: Get test packages from registry
+        run: |
+          # instantiate derivations again
+          nix path-info --derivation --recursive "$PACKAGE_FOR_TEST" > /dev/null
+          cat /tmp/derived | \
+            xargs nix build \
+              --no-link \
+              --max-jobs 0 \
+              --substituters "$STORE_URL" \
+              --trusted-public-keys "$(cat /tmp/nix-key-pair/public)"
+      - name: Verify local store
+        run: |
+          cat /tmp/derived_closure | \
+            xargs nix store verify \
+            --trusted-public-keys "$(cat /tmp/nix-key-pair/public)"
