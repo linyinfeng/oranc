@@ -56,10 +56,22 @@ jobs:
         }
         tag=$(nix eval .#dockerImage.imageTag --raw)
         echo "image_tag=$tag" >> $GITHUB_OUTPUT
-        push_to "docker://ghcr.io/linyinfeng/oranc:$tag"
-        if [ "${{ github.ref }}" = "refs/heads/main" ]; then
-          push_to "docker://ghcr.io/linyinfeng/oranc:latest"
+
+        all_tags=("$tag")
+        if [ "${{ github.ref_type }}" = "branch" ]; then
+          if [ "${{ github.ref_name }}" = "main" ]; then
+            all_tags+=("latest" "main")
+          fi
+          if [ "${{ github.ref_name }}" = "develop" ]; then
+            all_tags+=("develop" "develop-$(date +%F)")
+          fi
         fi
+        if [ "${{ github.ref_type }}" = "tag" ]; then
+          all_tags+=("${{ github.ref_name }}")
+        fi
+        for t in "${all_tags[@]}"; do
+          push_to "docker://ghcr.io/linyinfeng/oranc:$t"
+        done
 
   integration-test:
     strategy:
