@@ -77,7 +77,6 @@ There are two different ways to push cache to OCI registry using oranc.
    `oranc` will sign the NAR archive on the fly using `ORANC_SIGNING_KEY`.
 
    Note that:
-
    1. Only unsigned paths will be pushed, if you manually signed store paths, use the argument `--already-signed` to push them.
    2. Currently, `oranc` will not sign local paths, run `... | xargs nix store sign --recursive --key-file {YOUR_KEY_FILE}` to sign paths locally.
 
