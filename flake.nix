@@ -75,6 +75,7 @@
                       --fish <($out/bin/oranc completion fish) \
                       --zsh  <($out/bin/oranc completion zsh)
                   '';
+                  meta.mainProgram = "oranc";
                 }
               );
               default = config.packages.oranc;
