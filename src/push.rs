@@ -9,7 +9,7 @@ use std::{
 
 use futures::StreamExt;
 
-use oci_distribution::secrets::RegistryAuth;
+use oci_client::secrets::RegistryAuth;
 use once_cell::sync::Lazy;
 use tempfile::tempdir_in;
 

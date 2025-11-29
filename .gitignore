@@ -2,3 +2,4 @@
 /result*
 /.direnv
 /.vscode
+*.env

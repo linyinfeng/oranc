@@ -251,10 +251,10 @@ mod test {
             "realisations/sha256:67890e0958e5d1a2944a3389151472a9acde025c7812f68381a7eef0d82152d1!libgcc.doi",
         ];
         for s in test_strings {
-            assert_eq!(
-                CUSTOM_ENCODING.decode(&CUSTOM_ENCODING.encode(s)).unwrap(),
-                s
-            );
+            let encoded = CUSTOM_ENCODING.encode(s);
+            // https://github.com/opencontainers/distribution-spec/blob/main/spec.md#pulling-manifests
+            assert!(encoded.len() <= 128);
+            assert_eq!(CUSTOM_ENCODING.decode(&encoded).unwrap(), s);
         }
     }
 }

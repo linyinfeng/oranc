@@ -1,12 +1,17 @@
+use std::collections::{HashMap, VecDeque};
 use std::fmt;
+use std::sync::Arc;
 
 use crate::convert::EncodingOptions;
+use crate::server::ServerContext;
 use crate::{
     error::Error,
     options::{PushOptions, ServerOptions},
 };
-use maplit::hashmap;
-use oci_distribution::{
+use axum::RequestPartsExt;
+use axum::extract::{FromRef, FromRequestParts, Path, Query, State};
+use maplit::btreemap;
+use oci_client::{
     Client, Reference,
     client::{ClientConfig, ClientProtocol, Config, ImageLayer},
     config::{Architecture, ConfigFile, Os, Rootfs},
@@ -50,6 +55,53 @@ pub struct LayerInfo {
     pub reference: Reference,
     pub digest: String,
     pub content_type: String,
+}
+
+impl<S> FromRequestParts<S> for OciLocation
+where
+    S: Send + Sync,
+    Arc<ServerContext>: FromRef<S>,
+{
+    type Rejection = Error;
+
+    async fn from_request_parts(
+        parts: &mut http::request::Parts,
+        state: &S,
+    ) -> Result<Self, Self::Rejection> {
+        // although OciLocation can be constructed from query parameters `registry` and `reference`,
+        // currently Nix will not pass query parameters to HTTP binary caches
+        let State(ctx): State<Arc<ServerContext>> = State::from_request_parts(parts, state)
+            .await
+            .expect("infallible");
+        let Path(path) = parts.extract::<Path<String>>().await?;
+        let Query(params) = parts.extract::<Query<HashMap<String, String>>>().await?;
+        let mut path_parts: VecDeque<_> = path.split('/').collect();
+        let path_err = || Error::IllFormedPath(path.clone());
+        let registry = match params.get("registry") {
+            Some(r) => r.clone(),
+            None => path_parts.pop_front().ok_or_else(path_err)?.to_owned(),
+        };
+        let (repository, key_path) = match params.get("repository") {
+            Some(r) => (r.clone(), path_parts),
+            None => {
+                if path_parts.len() <= ctx.options.repository_parts {
+                    return Err(path_err());
+                }
+                // `path_parts.len() > ctx.options.repository_parts``
+                // `path_parts.len() >= ctx.options.repository_parts + 1``
+                // so that we have `!remain.is_empty()`
+                let remain = path_parts.split_off(ctx.options.repository_parts);
+                let repository = Vec::from(path_parts).join("/");
+                (repository, remain)
+            }
+        };
+        let key = Vec::from(key_path).join("/");
+        Ok(OciLocation {
+            registry,
+            repository,
+            key,
+        })
+    }
 }
 
 impl OciLocation {
@@ -168,7 +220,7 @@ pub async fn put(
         None => "application/octet-stream".to_string(),
         Some(c) => c,
     };
-    let layer_annotations = hashmap! {
+    let layer_annotations = btreemap! {
         CONTENT_TYPE_ANNOTATION.to_string() => content_type,
     };
     let layer = ImageLayer::new(
@@ -200,7 +252,7 @@ pub async fn put(
         .map_err(Error::OciDistribution)?;
 
     let key = &location.key;
-    let image_annotations = hashmap! {
+    let image_annotations = btreemap! {
         "com.linyinfeng.oranc.key".to_string() => key.to_owned(),
         "org.opencontainers.image.description".to_string() => key.to_owned(),
     };
@@ -290,6 +342,10 @@ impl RegistryOptions {
 
 impl fmt::Display for OciLocation {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}/{}/{}", self.registry, self.repository, self.key)
+        write!(
+            f,
+            "OCI({}, {}, {})",
+            self.registry, self.repository, self.key
+        )
     }
 }
