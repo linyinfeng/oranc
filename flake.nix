@@ -135,6 +135,7 @@
                   cargoClippyExtraArgs = "--all-targets -- --deny warnings";
                 }
               );
+              defaultNix = import ./default.nix { config = { inherit system; }; };
             };
             treefmt = {
               projectRootFile = "flake.nix";

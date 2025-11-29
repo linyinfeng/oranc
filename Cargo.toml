@@ -4,9 +4,8 @@ authors = [ "Lin Yinfeng <lin.yinfeng@outlook.com>" ]
 version = "0.1.0"
 edition = "2024"
 license = "MIT"
-description = """
-OCI Registry As Nix Cache
-"""
+homepage = "https://github.com/linyinfeng/oranc"
+description = "OCI Registry As Nix Cache"
 
 [dependencies]
 axum = "*"
