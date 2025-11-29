@@ -164,6 +164,14 @@ Run `oranc server --help` for more options.
 
 A NixOS module (`github:linyinfeng/oranc#nixosModules.oranc`) and a nixpkgs overlay (`github:linyinfeng/oranc#overlays.oranc`) are provided.
 
+## Notes
+
+### Slashes in Reference
+
+The OCI references used by [ghcr.io](https://ghcr.io) follow the format `{owner}/{package}`, which contains exactly one slash (i.e., two path components). However, general OCI references may include any number of slashes.
+
+By default, `oranc server` is designed to work with [ghcr.io](https://ghcr.io) out of the box, so it only accepts references that contain a single slash (two components). You can change this behavior with the `--repository-parts <NUM>` option. This option defaults to `2`, meaning the server expects exactly two path components—`{owner}` and `{package}`—separated by one slash.
+
 ## TODO
 
 [ ] Improve push performance of `oranc server`.
