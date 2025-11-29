@@ -7,7 +7,7 @@ Use an OCI registry (typically, [ghcr.io](https://ghcr.io)) to distribute binary
 ## Warning
 
 1. Tags, image manifests, and layers created by oranc are so different from other typical OCI repositories.
-So I don't know if it is an abuse of OCI registries. Pushing to [ghcr.io](https://ghcr.io) may violate the terms of service of GitHub.
+   So I don't know if it is an abuse of OCI registries. Pushing to [ghcr.io](https://ghcr.io) may violate the terms of service of GitHub.
 
 2. Repository schema of oranc is still unstable.
 
@@ -30,8 +30,8 @@ So I don't know if it is an abuse of OCI registries. Pushing to [ghcr.io](https:
 
 There are two different ways to push cache to OCI registry using oranc.
 
-* Direct push using `oranc push` (faster but has some limitations).
-* Push using `nix copy` with oranc server.
+- Direct push using `oranc push` (faster but has some limitations).
+- Push using `nix copy` with oranc server.
 
 #### Direct push
 
@@ -57,7 +57,7 @@ There are two different ways to push cache to OCI registry using oranc.
    oranc push --registry {OCI_REGISTRY} --repository {OCI_REPOSITORY} initialize
    ```
 
-   *Make the repository public*, otherwise, caching will not work.
+   _Make the repository public_, otherwise, caching will not work.
 
 4. Build something.
 

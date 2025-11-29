@@ -14,16 +14,16 @@ jobs:
       oranc:
         image: ghcr.io/linyinfeng/oranc
     steps:
-    - name: Checkout
-      uses: actions/checkout@main
-    - name: Install nix
-      uses: cachix/install-nix-action@master
-      with:
-        github_access_token: '${{ secrets.GITHUB_TOKEN }}'
-    - name: Setup oranc
-      uses: linyinfeng/oranc-action@main
-      with:
-        orancServerContainer: '${{ job.services.oranc.id }}'
-        signingKey: '${{ secrets.ORANC_SIGNING_KEY }}'
-    - name: Nix flake check
-      run: nix flake check
+      - name: Checkout
+        uses: actions/checkout@main
+      - name: Install nix
+        uses: cachix/install-nix-action@master
+        with:
+          github_access_token: "${{ secrets.GITHUB_TOKEN }}"
+      - name: Setup oranc
+        uses: linyinfeng/oranc-action@main
+        with:
+          orancServerContainer: "${{ job.services.oranc.id }}"
+          signingKey: "${{ secrets.ORANC_SIGNING_KEY }}"
+      - name: Nix flake check
+        run: nix flake check
