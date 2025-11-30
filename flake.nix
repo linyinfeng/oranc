@@ -76,6 +76,7 @@
                 }
               );
               default = config.packages.oranc;
+              installableCached = pkgs.callPackage ./installable-cached { inherit self; };
               dockerImage = pkgs.dockerTools.buildImage {
                 name = "oranc";
                 tag = self.sourceInfo.rev or null;

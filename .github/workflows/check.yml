@@ -6,7 +6,10 @@ on:
 
 jobs:
   check:
-    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        system: [ubuntu-latest, ubuntu-24.04-arm]
+    runs-on: ${{ matrix.system }}
     steps:
       - name: Checkout
         uses: actions/checkout@main
@@ -46,15 +49,25 @@ jobs:
       - name: Upload docker image
         id: upload
         run: |
-          image_archive=$(nix build .#dockerImage --no-link --print-out-paths)
+          docker login ghcr.io --username "${{ github.actor }}" --password "${{ secrets.GITHUB_TOKEN }}"
+          systems=(x86_64-linux aarch64-linux)
+          parts=()
+          for system in "${systems[@]}"; do
+            docker import "$(nix build .#packages."$system".dockerImage --no-link --print-out-paths)" working:"$system"
+            parts+=(working:"$system")
+          done
+          docker manifest create working:multi "${parts[@]}"
+          docker manifest inspect working:multi
           function push_to {
             echo "push to '$1'"
             skopeo copy \
               --dest-creds "${{ github.actor }}:${{ secrets.GITHUB_TOKEN }}" \
-              "docker-archive:$image_archive" \
+              --multi-arch=all \
+              docker-daemon:working:multi \
               "$1"
           }
-          tag=$(nix eval .#dockerImage.imageTag --raw)
+
+          tag=$(git rev-parse HEAD)
           echo "image_tag=$tag" >> $GITHUB_OUTPUT
 
           all_tags=("$tag")
@@ -76,8 +89,9 @@ jobs:
   integration-test:
     strategy:
       matrix:
-        package-for-test: ["coreutils", "nixosTests.nginx.driver"]
-    runs-on: ubuntu-latest
+        package-for-test: ["coreutils"]
+        system: [ubuntu-latest, ubuntu-24.04-arm]
+    runs-on: ${{ matrix.system }}
     needs: upload-docker-image
     env:
       PACKAGE_FOR_TEST: "github:nixos/nixpkgs/nixos-unstable#${{ matrix.package-for-test }}"

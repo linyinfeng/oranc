@@ -6,7 +6,10 @@ on:
 
 jobs:
   check:
-    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        system: [ubuntu-latest, ubuntu-24.04-arm]
+    runs-on: ${{ matrix.system }}
     permissions:
       contents: read
       packages: write
