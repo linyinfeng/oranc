@@ -241,8 +241,9 @@ pub async fn put(
     let config_file = ConfigFile {
         created: None,
         author: None,
-        architecture: Architecture::None,
-        os: Os::None,
+        // TODO find more reasonable values for architecture and os
+        architecture: Architecture::Other(String::new()),
+        os: Os::Other(String::new()),
         config: None,
         rootfs,
         history: None,
