@@ -4,27 +4,31 @@ OCI Registry As Nix Cache.
 
 Use an OCI registry (typically, [ghcr.io](https://ghcr.io)) to distribute binary caches of your Nix packages!
 
-## Warning
+> [!CAUTION]
+> Tags, image manifests, and layers created by oranc are so different from other typical OCI repositories.
+> So I don't know if it is an abuse of OCI registries. Pushing to [ghcr.io](https://ghcr.io) may violate the terms of service of GitHub.
 
-1. Tags, image manifests, and layers created by oranc are so different from other typical OCI repositories.
-   So I don't know if it is an abuse of OCI registries. Pushing to [ghcr.io](https://ghcr.io) may violate the terms of service of GitHub.
-
-2. Repository schema of oranc is still unstable.
-
-   Tag encoding has been updated to support CA realisations. To use old pushed cache, please use the `--fallback-encodings base32-dnssec` option.
-
-   ```console
-   $ oranc tag encode "realisations/sha256:67890e0958e5d1a2944a3389151472a9acde025c7812f68381a7eef0d82152d1!libgcc.doi"
-   realisations_L_sha256_W_67890e0958e5d1a2944a3389151472a9acde025c7812f68381a7eef0d82152d1_x_libgcc.doi
-   $ oranc tag encode "realisations/sha256:67890e0958e5d1a2944a3389151472a9acde025c7812f68381a7eef0d82152d1!libgcc.doi" \
-       --fallbacks --fallback-encodings base32-dnssec
-   realisations_L_sha256_W_67890e0958e5d1a2944a3389151472a9acde025c7812f68381a7eef0d82152d1_x_libgcc.doi
-   e9im2r39edgn8qbfdppiusr8c4p3adhq6orjge9gcko3id9ockqm8cb168sj8d316cpjge9h6koj8dpic4sm2or4cko34db36ss32cj66os36e1hc4rmapb661i3gchh6kp68c91dhkm4pr3ccn68rr9
-   ```
-
-   The `base32-dnssec` encoding for realisation is too long to fit into an OCI reference tag.
+> [!IMPORTANT]
+> Repository schema of oranc is still unstable.
+>
+> Tag encoding has been updated to support CA realisations. To use old pushed cache, please use the `--fallback-encodings base32-dnssec` option.
+>
+> ```console
+> $ oranc tag encode "realisations/sha256:67890e0958e5d1a2944a3389151472a9acde025c7812f68381a7eef0d82152d1!libgcc.doi"
+> realisations_L_sha256_W_67890e0958e5d1a2944a3389151472a9acde025c7812f68381a7eef0d82152d1_x_libgcc.doi
+> $ oranc tag encode "realisations/sha256:67890e0958e5d1a2944a3389151472a9acde025c7812f68381a7eef0d82152d1!libgcc.doi" \
+>      --fallbacks --fallback-encodings base32-dnssec
+> realisations_L_sha256_W_67890e0958e5d1a2944a3389151472a9acde025c7812f68381a7eef0d82152d1_x_libgcc.doi
+> e9im2r39edgn8qbfdppiusr8c4p3adhq6orjge9gcko3id9ockqm8cb168sj8d316cpjge9h6koj8dpic4sm2or4cko34db36ss32cj66os36e1hc4rmapb661i3gchh6kp68c91dhkm4pr3ccn68rr9
+> ```
+>
+> The `base32-dnssec` encoding for realisation is too long to fit into an OCI reference tag.
 
 ## Usage
+
+### In GitHub action
+
+There is a GitHub Action to use oranc conveniently. See [oranc-action](https://github.com/linyinfeng/oranc-action) for more information.
 
 ### Push to OCI registry
 
