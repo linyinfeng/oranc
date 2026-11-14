@@ -176,7 +176,7 @@ jobs:
 
           # push everything
           cat /tmp/store_paths | \
-          sudo -E /tmp/oranc/bin/oranc \
+          sudo --preserve-env=ORANC_SIGNING_KEY /tmp/oranc/bin/oranc \
             push \
             --no-ssl \
             --registry "$REGISTRY" \
