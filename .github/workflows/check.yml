@@ -96,7 +96,9 @@ jobs:
   integration-test:
     strategy:
       matrix:
-        package-for-test: ["coreutils", "nixosTests.nginx.driver"]
+        package-for-test:
+          - "coreutils"
+          - "nixosTests.simple-container.containers.noprofile.system.build.toplevel"
         os: [ubuntu-latest, ubuntu-24.04-arm]
     runs-on: ${{ matrix.os }}
     needs: push-docker-manifest
