@@ -3,8 +3,10 @@
   lib,
   pkg-config,
   installShellFiles,
+  aws-lc,
   openssl,
   sqlite,
+  zstd,
 }:
 let
   inherit (builtins) readFile fromTOML;
@@ -29,8 +31,10 @@ rustPlatform.buildRustPackage (_finalAttrs: {
     installShellFiles
   ];
   buildInputs = [
+    aws-lc
     openssl
     sqlite
+    zstd
   ];
 
   postInstall = ''
