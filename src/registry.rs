@@ -54,6 +54,7 @@ pub struct OciItem {
 pub struct LayerInfo {
     pub reference: Reference,
     pub digest: String,
+    pub size: i64,
     pub content_type: String,
 }
 
@@ -206,6 +207,7 @@ pub async fn get_layer_info(
     let info = LayerInfo {
         reference,
         digest: layer_manifest.digest.clone(),
+        size: layer_manifest.size,
         content_type: content_type.clone(),
     };
     Ok(Some(info))
