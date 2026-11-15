@@ -69,6 +69,7 @@ async fn get_key(
     let LayerInfo {
         reference,
         digest,
+        size,
         content_type,
     } = get_layer_info(&mut registry_ctx, &location)
         .await?
@@ -80,6 +81,7 @@ async fn get_key(
         .map_err(Error::OciDistribution)?;
     Response::builder()
         .status(StatusCode::OK)
+        .header(header::CONTENT_LENGTH, size)
         .header(header::CONTENT_TYPE, content_type)
         .body(Body::from_stream(blob_stream))
         .map_err(Error::Http)
@@ -98,12 +100,14 @@ async fn head_key(
     let LayerInfo {
         reference: _,
         digest: _,
+        size,
         content_type,
     } = get_layer_info(&mut registry_ctx, &location)
         .await?
         .ok_or(Error::ReferenceNotFound(location.clone()))?;
     Response::builder()
         .status(StatusCode::OK)
+        .header(header::CONTENT_LENGTH, size)
         .header(header::CONTENT_TYPE, content_type)
         .body(Body::empty())
         .map_err(Error::Http)

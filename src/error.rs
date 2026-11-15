@@ -33,6 +33,8 @@ pub enum Error {
     Join(#[from] tokio::task::JoinError),
     #[error("invalid nar size: {0}")]
     InvalidNarSize(<i64 as TryInto<usize>>::Error),
+    #[error("invalid image layer size: {0}")]
+    InvalidLayerSize(i64),
     #[error("nar size not match: expected = {0}, actual = {1}")]
     NarSizeNotMatch(i64, usize),
     #[error("retry all fails: {0:?}")]
@@ -128,6 +130,7 @@ impl Error {
             Error::EarlyStop => StatusCode::INTERNAL_SERVER_ERROR,
             Error::Join(_) => StatusCode::INTERNAL_SERVER_ERROR,
             Error::InvalidNarSize(_) => StatusCode::INTERNAL_SERVER_ERROR,
+            Error::InvalidLayerSize(_) => StatusCode::INTERNAL_SERVER_ERROR,
             Error::NarSizeNotMatch(_, _) => StatusCode::INTERNAL_SERVER_ERROR,
             Error::RetryAllFails(_) => StatusCode::INTERNAL_SERVER_ERROR,
             Error::PushFailed => StatusCode::INTERNAL_SERVER_ERROR,
