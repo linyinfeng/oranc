@@ -7,6 +7,10 @@ on:
     branches:
       - main
 
+concurrency:
+  group: automated-update
+  cancel-in-progress: false
+
 jobs:
   update:
     runs-on: ubuntu-latest
@@ -50,6 +54,25 @@ jobs:
       - name: Nix flake check
         run: |
           nix flake check
-      - name: Git push
+      - name: Open update pull request
+        env:
+          GH_TOKEN: ${{ secrets.PAT_FOR_AUTOMATED_UPDATE }}
         run: |
-          git push
+          if git diff --quiet origin/main HEAD; then
+            echo "no changes relative to main, skip update PR"
+            exit 0
+          fi
+
+          branch=automated-update
+          previous_head=$(git ls-remote --heads origin "refs/heads/$branch" | cut -f1)
+          git push --force-with-lease="refs/heads/$branch:$previous_head" origin "HEAD:refs/heads/$branch"
+
+          pr=$(gh pr list --repo "$GITHUB_REPOSITORY" --base main --head "$branch" \
+            --state open --json number --jq '.[0].number // empty')
+          if [ -n "$pr" ]; then
+            gh pr edit "$pr" --repo "$GITHUB_REPOSITORY" --add-label "auto update"
+          else
+            gh pr create --repo "$GITHUB_REPOSITORY" --base main --head "$branch" \
+              --title "Automated update" --label "auto update" \
+              --body "Update Nix flake inputs and Cargo dependencies."
+          fi
