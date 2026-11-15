@@ -74,5 +74,5 @@ jobs:
           else
             gh pr create --repo "$GITHUB_REPOSITORY" --base main --head "$branch" \
               --title "Automated update" --label "auto update" \
-              --body "Update Nix flake inputs and Cargo dependencies. Merge through the shared queue after CI succeeds."
+              --body "Update Nix flake inputs and Cargo dependencies."
           fi
