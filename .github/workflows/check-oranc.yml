@@ -5,7 +5,19 @@ on:
   workflow_dispatch:
 
 jobs:
+  check-signing-key:
+    runs-on: ubuntu-latest
+    permissions: {}
+    outputs:
+      available: ${{ steps.signing-key.outputs.available }}
+    steps:
+      - name: Check signing key availability
+        id: signing-key
+        run: echo "available=${{ secrets.ORANC_SIGNING_KEY != '' }}" >> "$GITHUB_OUTPUT"
+
   check:
+    needs: check-signing-key
+    if: ${{ needs.check-signing-key.outputs.available == 'true' }}
     runs-on: ubuntu-latest
     permissions:
       contents: read
