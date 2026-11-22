@@ -40,18 +40,31 @@ pub async fn check(
     }
     for upstream in &ctx.options.upstream {
         let url = upstream_url(upstream, key)?;
-        for attempt in 1..max_retry {
-            let response = ctx.http_client.head(url.clone()).send().await?;
-            if response.status() == StatusCode::OK {
-                return Ok(Some(url));
-            } else if response.status() == StatusCode::NOT_FOUND {
-                break;
-            } else {
-                log::warn!(
-                    "query upstream url '{url}', attempt {attempt}/{max_retry} failed: {:?}",
-                    response
-                );
+        let mut failed = true;
+        for attempt in 1..=max_retry {
+            match ctx.http_client.head(url.clone()).send().await {
+                Ok(response) if response.status() == StatusCode::OK => {
+                    return Ok(Some(url));
+                }
+                Ok(response) if response.status() == StatusCode::NOT_FOUND => {
+                    failed = false;
+                    break;
+                }
+                Ok(response) => {
+                    log::warn!(
+                        "query upstream url '{url}', attempt {attempt}/{max_retry} failed: {:?}",
+                        response
+                    );
+                }
+                Err(e) => {
+                    log::warn!(
+                        "query upstream url '{url}', attempt {attempt}/{max_retry} failed: {e}"
+                    );
+                }
             }
+        }
+        if failed {
+            log::error!("query upstream url '{url}' failed after {max_retry} attempts");
         }
     }
     Ok(None)
