@@ -147,10 +147,14 @@ pub async fn get_layer_info(
                 Err(OciDistributionError::ImageManifestNotFoundError(_)) => break 'retries,
                 Err(OciDistributionError::RegistryError { envelope, .. })
                     if !envelope.errors.is_empty()
-                        && envelope
-                            .errors
-                            .iter()
-                            .all(|e| e.code == OciErrorCode::ManifestUnknown) =>
+                        && envelope.errors.iter().all(|e| {
+                            matches!(
+                                e.code,
+                                OciErrorCode::ManifestUnknown
+                                    | OciErrorCode::NameUnknown
+                                    | OciErrorCode::NotFound
+                            )
+                        }) =>
                 {
                     break 'retries;
                 }
