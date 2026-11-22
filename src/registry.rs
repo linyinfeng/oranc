@@ -137,7 +137,7 @@ pub async fn get_layer_info(
     let mut errors = vec![];
     'fallbacks: for reference in references {
         let mut ref_errors = vec![];
-        'retries: for attempt in 1..max_retry {
+        'retries: for attempt in 1..=max_retry {
             log::debug!("pull image manifest {reference:?}, attempt {attempt}/{max_retry}");
             match ctx.client.pull_image_manifest(&reference, &ctx.auth).await {
                 Ok(res) => {
@@ -146,10 +146,15 @@ pub async fn get_layer_info(
                 }
                 Err(OciDistributionError::ImageManifestNotFoundError(_)) => break 'retries,
                 Err(OciDistributionError::RegistryError { envelope, .. })
-                    if envelope
-                        .errors
-                        .iter()
-                        .all(|e| e.code == OciErrorCode::ManifestUnknown) =>
+                    if !envelope.errors.is_empty()
+                        && envelope.errors.iter().all(|e| {
+                            matches!(
+                                e.code,
+                                OciErrorCode::ManifestUnknown
+                                    | OciErrorCode::NameUnknown
+                                    | OciErrorCode::NotFound
+                            )
+                        }) =>
                 {
                     break 'retries;
                 }
@@ -165,7 +170,7 @@ pub async fn get_layer_info(
         }
         if ref_errors.len() == max_retry {
             log::error!("pull image manifest {reference:?} failed");
-            // all reties failed
+            // all retries failed
             errors.extend(ref_errors);
         }
     }
@@ -268,7 +273,7 @@ pub async fn put(
     }
     let (reference, _fallbacks) = location.reference(&ctx.options.encoding_options);
     let mut errors = vec![];
-    for attempt in 1..max_retry {
+    for attempt in 1..=max_retry {
         log::debug!("push {reference:?}, attempt {attempt}/{max_retry}");
         if ctx.options.dry_run {
             log::debug!("dry run, skipped");
