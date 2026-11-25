@@ -7,7 +7,8 @@ use std::{
     sync::atomic::{AtomicBool, Ordering},
 };
 
-use futures::{StreamExt, TryStreamExt};
+use bytes::Bytes;
+use futures::{StreamExt, TryStreamExt, future, stream};
 
 use oci_client::secrets::RegistryAuth;
 use once_cell::sync::Lazy;
@@ -272,15 +273,23 @@ async fn push_nar(
     // TODO remove this collection once chunks are streamed to the registry
     let (encoded, chunks) = tokio::join!(encoding, chunks.try_collect::<Vec<_>>());
     let encoded = encoded??;
-    let nar_file_data = chunks?.concat();
+    let nar_file_data = Bytes::from(chunks?.concat());
 
     let nar_hash = NixHash::from_sha256(&encoded.nar_sha256);
     let location = oci_location(options, nar_file_url(&nar_hash));
-    let item = OciItem {
-        content_type: Some(NAR_CONTENT_TYPE.to_owned()),
-        blob: OciBlob::from_bytes(nar_file_data),
-    };
-    registry::put(ctx, &location, item).await?;
+    let digest = registry::sha256_oci_digest(&encoded.file_sha256);
+    let description = format!("push NAR of '{}'", path_info.path);
+    registry::retry(ctx, &description, || async {
+        if ctx.options.dry_run {
+            log::debug!("dry run, skipped");
+            return Ok(());
+        }
+        let data = stream::once(future::ok(nar_file_data.clone()));
+        registry::push_blob_stream(ctx, &options.registry, &options.repository, data).await?;
+        let content_type = Some(NAR_CONTENT_TYPE.to_owned());
+        registry::push_manifest(ctx, &location, content_type, &digest, encoded.file_size).await
+    })
+    .await?;
     Ok(encoded)
 }
 

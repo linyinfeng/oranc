@@ -1,5 +1,6 @@
 use std::collections::{HashMap, VecDeque};
 use std::fmt;
+use std::io;
 use std::sync::Arc;
 
 use crate::convert::EncodingOptions;
@@ -12,6 +13,7 @@ use axum::RequestPartsExt;
 use axum::extract::{FromRef, FromRequestParts, Path, Query, State};
 use bytes::Bytes;
 use data_encoding::HEXLOWER;
+use futures::{Stream, TryStreamExt};
 use maplit::btreemap;
 use oci_client::{
     Client, Reference,
@@ -254,7 +256,11 @@ pub async fn put(
 /// Runs `f` until it succeeds, at most `max_retry` times.
 ///
 /// Only registry errors are retried, any other error is returned at once.
-async fn retry<T, F, Fut>(ctx: &RegistryContext, description: &str, mut f: F) -> Result<T, Error>
+pub async fn retry<T, F, Fut>(
+    ctx: &RegistryContext,
+    description: &str,
+    mut f: F,
+) -> Result<T, Error>
 where
     F: FnMut() -> Fut,
     Fut: Future<Output = Result<T, Error>>,
@@ -343,6 +349,47 @@ fn build_image(
     Ok((config, image_manifest))
 }
 
+/// Pushes the blob streamed by `data` to `repository` in `registry`.
+///
+/// The digest of the blob is computed while streaming, so `data` is pushed
+/// in chunks.
+pub async fn push_blob_stream(
+    ctx: &RegistryContext,
+    registry: &str,
+    repository: &str,
+    data: impl Stream<Item = io::Result<Bytes>> + Send + 'static,
+) -> Result<(), Error> {
+    // blob uploads only depend on the registry and the repository of a reference
+    let reference = Reference::with_tag(
+        registry.to_owned(),
+        repository.to_owned(),
+        "latest".to_owned(),
+    );
+    let client = &ctx.client;
+    client
+        .store_auth_if_needed(reference.resolve_registry(), &ctx.auth)
+        .await;
+    client
+        .push_blob_stream_chunked(&reference, data.map_err(OciDistributionError::from))
+        .await?;
+    Ok(())
+}
+
+/// Pushes the config and the manifest of a single layer image whose layer,
+/// the blob with the given digest and size, has already been pushed.
+pub async fn push_manifest(
+    ctx: &RegistryContext,
+    location: &OciLocation,
+    content_type: Option<String>,
+    digest: &str,
+    size: u64,
+) -> Result<(), Error> {
+    let (config, image_manifest) = build_image(location, content_type, digest, size)?;
+    let (reference, _fallbacks) = location.reference(&ctx.options.encoding_options);
+    push_image_manifest(ctx, &reference, &config, &image_manifest).await?;
+    Ok(())
+}
+
 /// Pushes the layer, the config and the manifest of an image in order.
 ///
 /// Equivalent to [`Client::push`] for a single layer image.
@@ -397,7 +444,7 @@ impl OciBlob {
 }
 
 /// Formats a raw SHA-256 hash as an OCI content digest.
-fn sha256_oci_digest(sha256: &[u8]) -> String {
+pub fn sha256_oci_digest(sha256: &[u8]) -> String {
     format!("sha256:{}", HEXLOWER.encode(sha256))
 }
 
