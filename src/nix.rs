@@ -203,14 +203,14 @@ pub fn query_path_info(db: &rusqlite::Connection, id: i64) -> Result<PathInfo, E
 
 impl NixHash {
     pub fn hash_data(data: &[u8]) -> NixHash {
-        let sha256 = {
-            let mut hasher = Sha256::new();
-            hasher.update(data);
-            hasher.finalize()
-        };
+        Self::from_sha256(&Sha256::digest(data))
+    }
+
+    /// Wraps a raw SHA-256 hash.
+    pub fn from_sha256(sha256: &[u8]) -> NixHash {
         NixHash {
             algorithm: "sha256".to_string(),
-            base32: to_nix_base32(&sha256[..]),
+            base32: to_nix_base32(sha256),
         }
     }
 }
