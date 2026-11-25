@@ -287,6 +287,7 @@ async fn push_nar_attempt(
         }
     });
     let uploading = async {
+        let chunks = chunks.map_err(io::Error::other);
         if ctx.options.dry_run {
             log::debug!("dry run, skipped");
             chunks.try_for_each(|_| future::ok(())).await?;

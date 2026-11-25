@@ -18,7 +18,7 @@ pub fn channel(
     capacity: usize,
 ) -> (
     ChunkWriter,
-    impl Stream<Item = io::Result<Bytes>> + Send + 'static,
+    impl Stream<Item = Result<Bytes, WriterDropped>> + Send + 'static,
 ) {
     assert!(chunk_size > 0, "chunk size must be positive");
     let (sender, receiver) = mpsc::channel(capacity);
@@ -32,13 +32,7 @@ pub fn channel(
         match receiver.recv().await {
             Some(Message::Chunk(chunk)) => Some((Ok(chunk), Some(receiver))),
             Some(Message::End) => None,
-            None => {
-                let error = io::Error::new(
-                    io::ErrorKind::UnexpectedEof,
-                    "chunk writer dropped before finishing",
-                );
-                Some((Err(error), None))
-            }
+            None => Some((Err(WriterDropped), None)),
         }
     });
     (writer, chunks)
@@ -59,6 +53,12 @@ enum Message {
     /// The writer finished, no chunk follows.
     End,
 }
+
+/// Error of reading from a chunk stream whose [`ChunkWriter`] was dropped
+/// before finishing.
+#[derive(thiserror::Error, Debug)]
+#[error("chunk writer dropped before finishing")]
+pub struct WriterDropped;
 
 /// Error of writing to a [`ChunkWriter`] whose receiving stream is dropped.
 #[derive(thiserror::Error, Debug)]
