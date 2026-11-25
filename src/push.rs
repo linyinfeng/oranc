@@ -334,17 +334,19 @@ async fn push_nar_blob(
     let (encoded, uploaded) = tokio::join!(encoding, uploading);
     let (encoded, uploaded) = combine_stream_results(encoded?, uploaded)?;
 
-    if let Some(uploaded) = uploaded {
-        let (digest, size) = (&uploaded.blob_digest, uploaded.size);
-        let expected_digest = registry::sha256_oci_digest(&encoded.file_sha256);
-        if *digest != expected_digest || size != encoded.file_size {
-            return Err(Error::UploadedBlobNotMatch(
-                expected_digest,
-                encoded.file_size,
-                digest.clone(),
-                size,
-            ));
-        }
+    let Some(uploaded) = uploaded else {
+        // dry run
+        return Ok(encoded);
+    };
+    let (digest, size) = (&uploaded.blob_digest, uploaded.size);
+    let expected_digest = registry::sha256_oci_digest(&encoded.file_sha256);
+    if *digest != expected_digest || size != encoded.file_size {
+        return Err(Error::UploadedBlobNotMatch(
+            expected_digest,
+            encoded.file_size,
+            digest.clone(),
+            size,
+        ));
     }
     Ok(encoded)
 }
