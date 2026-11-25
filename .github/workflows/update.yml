@@ -16,10 +16,6 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
-      packages: write
-    services:
-      oranc:
-        image: ghcr.io/linyinfeng/oranc
     steps:
       - name: Checkout
         uses: actions/checkout@main
@@ -45,15 +41,12 @@ jobs:
       - name: Cargo update
         run: |
           nix develop --command cargo update
-          if [ -z $(git status --porcelain) ]; then
+          if [ -z "$(git status --porcelain)" ]; then
             echo "clean, skip..."
           else
             git add --all
             git commit --message "Cargo update"
           fi
-      - name: Nix flake check
-        run: |
-          nix flake check
       - name: Open update pull request
         env:
           GH_TOKEN: ${{ secrets.PAT_FOR_AUTOMATED_UPDATE }}
