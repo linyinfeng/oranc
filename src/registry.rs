@@ -360,6 +360,21 @@ async fn push_image(
     client
         .push_blob(reference, blob.data.clone(), &blob.digest)
         .await?;
+    push_image_manifest(ctx, reference, config, manifest).await
+}
+
+/// Pushes the config and the manifest of an image in order, assuming that
+/// its layer has already been pushed.
+async fn push_image_manifest(
+    ctx: &RegistryContext,
+    reference: &Reference,
+    config: &Config,
+    manifest: &OciImageManifest,
+) -> Result<(), OciDistributionError> {
+    let client = &ctx.client;
+    client
+        .store_auth_if_needed(reference.resolve_registry(), &ctx.auth)
+        .await;
     client
         .push_blob(reference, config.data.clone(), &manifest.config.digest)
         .await?;
