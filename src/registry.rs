@@ -235,18 +235,56 @@ pub async fn put(
     location: &OciLocation,
     oci_item: OciItem,
 ) -> Result<(), Error> {
-    let content_type = match oci_item.content_type {
+    let blob = oci_item.blob;
+    let (config, image_manifest) =
+        build_image(location, oci_item.content_type, &blob.digest, blob.size)?;
+
+    let max_retry = ctx.options.max_retry;
+    if max_retry < 1 {
+        return Err(Error::InvalidMaxRetry(max_retry));
+    }
+    let (reference, _fallbacks) = location.reference(&ctx.options.encoding_options);
+    let mut errors = vec![];
+    for attempt in 1..=max_retry {
+        log::debug!("push {reference:?}, attempt {attempt}/{max_retry}");
+        if ctx.options.dry_run {
+            log::debug!("dry run, skipped");
+            return Ok(());
+        }
+        match push_image(ctx, &reference, &blob, &config, &image_manifest).await {
+            Ok(()) => return Ok(()),
+            Err(oci_error) => {
+                let e = oci_error.into();
+                log::warn!(
+                    "push {reference:?}, attempt {attempt}/{max_retry} failed: {}",
+                    e
+                );
+                errors.push(e);
+            }
+        }
+    }
+    Err(Error::RetryAllFails(errors))
+}
+
+/// Builds the config and the manifest of a single layer image whose
+/// layer is the blob with the given digest and size.
+fn build_image(
+    location: &OciLocation,
+    content_type: Option<String>,
+    digest: &str,
+    size: u64,
+) -> Result<(Config, OciImageManifest), Error> {
+    let content_type = match content_type {
         None => "application/octet-stream".to_string(),
         Some(c) => c,
     };
     let layer_annotations = btreemap! {
         CONTENT_TYPE_ANNOTATION.to_string() => content_type,
     };
-    let blob = oci_item.blob;
     let layer_descriptor = OciDescriptor {
         media_type: LAYER_MEDIA_TYPE.to_string(),
-        digest: blob.digest.clone(),
-        size: i64::try_from(blob.size).map_err(|_| Error::InvalidBlobSize(blob.size))?,
+        digest: digest.to_owned(),
+        size: i64::try_from(size).map_err(|_| Error::InvalidBlobSize(size))?,
         annotations: Some(layer_annotations),
         ..Default::default()
     };
@@ -255,7 +293,7 @@ pub async fn put(
         r#type: "layers".to_string(),
         diff_ids: vec![
             // just use layer digest
-            blob.digest.clone(),
+            digest.to_owned(),
         ],
     };
     let config_file = ConfigFile {
@@ -290,32 +328,7 @@ pub async fn put(
         annotations: Some(image_annotations),
         ..Default::default()
     };
-
-    let max_retry = ctx.options.max_retry;
-    if max_retry < 1 {
-        return Err(Error::InvalidMaxRetry(max_retry));
-    }
-    let (reference, _fallbacks) = location.reference(&ctx.options.encoding_options);
-    let mut errors = vec![];
-    for attempt in 1..=max_retry {
-        log::debug!("push {reference:?}, attempt {attempt}/{max_retry}");
-        if ctx.options.dry_run {
-            log::debug!("dry run, skipped");
-            return Ok(());
-        }
-        match push_image(ctx, &reference, &blob, &config, &image_manifest).await {
-            Ok(()) => return Ok(()),
-            Err(oci_error) => {
-                let e = oci_error.into();
-                log::warn!(
-                    "push {reference:?}, attempt {attempt}/{max_retry} failed: {}",
-                    e
-                );
-                errors.push(e);
-            }
-        }
-    }
-    Err(Error::RetryAllFails(errors))
+    Ok((config, image_manifest))
 }
 
 /// Pushes the layer, the config and the manifest of an image in order.
