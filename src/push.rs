@@ -21,7 +21,7 @@ const NARINFO_CONTENT_TYPE: &str = "text/x-nix-narinfo";
 use crate::hashing::HashingWriter;
 use crate::nix::sign::{NixKeyPair, NixSignatureList};
 use crate::nix::{NarInfo, NixHash, PathInfo};
-use crate::registry::{OciBlob, OciItem, OciLocation, RegistryOptions};
+use crate::registry::{OciBlob, OciItem, OciLocation, RegistryContext, RegistryOptions};
 use crate::{
     error::Error,
     nix,
@@ -228,24 +228,10 @@ async fn push_one(
 
     log::info!("[{task_header}] pushing  '{}'...", path_info.path);
 
-    let (nar_file_data, encoded) = tokio::task::spawn_blocking({
-        let store_path = path_info.path.clone();
-        let nar_size = path_info.nar_size;
-        let zstd_level = options.zstd_level;
-        move || encode_nar(&store_path, nar_size, zstd_level, Vec::new())
-    })
-    .await??;
-
     let ctx = RegistryOptions::from_push_options(options).context(auth.clone());
 
     // push nar first
-    let nar_hash = NixHash::from_sha256(&encoded.nar_sha256);
-    let nar_location = oci_location(options, nar_file_url(&nar_hash));
-    let nar_item = OciItem {
-        content_type: Some(NAR_CONTENT_TYPE.to_owned()),
-        blob: OciBlob::from_bytes(nar_file_data),
-    };
-    registry::put(&ctx, &nar_location, nar_item).await?;
+    let encoded = push_nar(&ctx, options, &path_info).await?;
 
     let nar_info = build_nar_info(options, key_pair, path_info, &encoded)?;
     let nar_info_content = nar_info.to_string();
@@ -256,6 +242,31 @@ async fn push_one(
         blob: OciBlob::from_bytes(nar_info_content.into_bytes()),
     };
     registry::put(&ctx, &nar_info_location, nar_info_item).await
+}
+
+/// Encodes the NAR of the store path described by `path_info`, compresses
+/// it and pushes it, returning its hashes and sizes.
+async fn push_nar(
+    ctx: &RegistryContext,
+    options: &PushOptions,
+    path_info: &PathInfo,
+) -> Result<EncodedNar, Error> {
+    let (nar_file_data, encoded) = tokio::task::spawn_blocking({
+        let store_path = path_info.path.clone();
+        let nar_size = path_info.nar_size;
+        let zstd_level = options.zstd_level;
+        move || encode_nar(&store_path, nar_size, zstd_level, Vec::new())
+    })
+    .await??;
+
+    let nar_hash = NixHash::from_sha256(&encoded.nar_sha256);
+    let location = oci_location(options, nar_file_url(&nar_hash));
+    let item = OciItem {
+        content_type: Some(NAR_CONTENT_TYPE.to_owned()),
+        blob: OciBlob::from_bytes(nar_file_data),
+    };
+    registry::put(ctx, &location, item).await?;
+    Ok(encoded)
 }
 
 async fn handle_push_result(r: Result<(), Error>, failed: &AtomicBool) {
