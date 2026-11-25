@@ -114,6 +114,9 @@ impl Write for ChunkWriter {
     }
 
     fn flush(&mut self) -> io::Result<()> {
+        if self.sender.is_closed() {
+            return Err(stream_dropped());
+        }
         self.send_buffer()
     }
 }
