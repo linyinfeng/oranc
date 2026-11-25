@@ -218,9 +218,9 @@ async fn push_one(
     })
     .await??;
 
-    let mut ctx = RegistryOptions::from_push_options(options).context(auth.clone());
+    let ctx = RegistryOptions::from_push_options(options).context(auth.clone());
     for (location, item) in to_put {
-        registry::put(&mut ctx, &location, item).await?;
+        registry::put(&ctx, &location, item).await?;
     }
     Ok(())
 }
@@ -325,7 +325,7 @@ pub async fn push_initialize_main(
     log::debug!("nix-cache-info:\n{nix_cache_info}");
     let key = "nix-cache-info".to_owned();
     let content_type = "text/x-nix-cache-info".to_owned();
-    let mut ctx = RegistryOptions::from_push_options(&options).context(auth);
+    let ctx = RegistryOptions::from_push_options(&options).context(auth);
     let location = OciLocation {
         registry: options.registry,
         repository: options.repository,
@@ -335,6 +335,6 @@ pub async fn push_initialize_main(
         content_type: Some(content_type),
         data: nix_cache_info.into_bytes(),
     };
-    registry::put(&mut ctx, &location, item).await?;
+    registry::put(&ctx, &location, item).await?;
     Ok(())
 }

@@ -124,7 +124,7 @@ impl OciLocation {
 }
 
 pub async fn get_layer_info(
-    ctx: &mut RegistryContext,
+    ctx: &RegistryContext,
     location: &OciLocation,
 ) -> Result<Option<LayerInfo>, Error> {
     let max_retry = ctx.options.max_retry;
@@ -220,7 +220,7 @@ pub async fn get_layer_info(
 }
 
 pub async fn put(
-    ctx: &mut RegistryContext,
+    ctx: &RegistryContext,
     location: &OciLocation,
     oci_item: OciItem,
 ) -> Result<(), Error> {
