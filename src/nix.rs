@@ -23,9 +23,9 @@ pub struct NarInfo {
     pub url: String,
     pub compression: String,
     pub file_hash: NixHash,
-    pub file_size: usize,
+    pub file_size: u64,
     pub nar_hash: NixHash,
-    pub nar_size: usize,
+    pub nar_size: u64,
     pub references: Vec<String>,
     pub deriver: Option<String>,
     pub sigs: NixSignatureList,
@@ -243,7 +243,7 @@ pub fn nar_info_fingerprint(
     store_dir: &str,
     store_path: &str,
     nar_hash: &NixHash,
-    nar_size: usize,
+    nar_size: u64,
     references: &[String],
 ) -> String {
     let fingerprint = format!(

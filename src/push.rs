@@ -134,15 +134,15 @@ async fn push_one(
             let mut nar_data = vec![];
             let mut nar_encoder = nix_nar::Encoder::new(&store_path)?;
             io::copy(&mut nar_encoder, &mut nar_data)?;
-            let nar_size = nar_data.len();
+            let nar_size = nar_data.len() as u64;
             let nar_hash = NixHash::hash_data(&nar_data[..]);
             let mut nar_file_data = vec![];
             zstd::stream::copy_encode(&nar_data[..], &mut nar_file_data, options.zstd_level)?;
             drop(nar_data); // save some memory
-            let nar_file_size = nar_file_data.len();
+            let nar_file_size = nar_file_data.len() as u64;
             let nar_file_hash = NixHash::hash_data(&nar_file_data[..]);
 
-            let expected_nar_size: usize = path_info
+            let expected_nar_size: u64 = path_info
                 .nar_size
                 .try_into()
                 .map_err(Error::InvalidNarSize)?;

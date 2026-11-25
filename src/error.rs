@@ -32,11 +32,11 @@ pub enum Error {
     #[error("tokio join error: {0}")]
     Join(#[from] tokio::task::JoinError),
     #[error("invalid nar size: {0}")]
-    InvalidNarSize(<i64 as TryInto<usize>>::Error),
+    InvalidNarSize(<i64 as TryInto<u64>>::Error),
     #[error("invalid image layer size: {0}")]
     InvalidLayerSize(i64),
     #[error("nar size not match: expected = {0}, actual = {1}")]
-    NarSizeNotMatch(i64, usize),
+    NarSizeNotMatch(i64, u64),
     #[error("retry all fails: {0:?}")]
     RetryAllFails(Vec<Error>),
     #[error("push failed")]
