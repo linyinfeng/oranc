@@ -7,7 +7,7 @@ use std::{
     sync::atomic::{AtomicBool, Ordering},
 };
 
-use futures::StreamExt;
+use futures::{StreamExt, TryStreamExt};
 
 use oci_client::secrets::RegistryAuth;
 use once_cell::sync::Lazy;
@@ -270,9 +270,9 @@ async fn push_nar(
         }
     });
     // TODO remove this collection once chunks are streamed to the registry
-    let (encoded, chunks) = tokio::join!(encoding, chunks.collect::<Vec<_>>());
+    let (encoded, chunks) = tokio::join!(encoding, chunks.try_collect::<Vec<_>>());
     let encoded = encoded??;
-    let nar_file_data = chunks.concat();
+    let nar_file_data = chunks?.concat();
 
     let nar_hash = NixHash::from_sha256(&encoded.nar_sha256);
     let location = oci_location(options, nar_file_url(&nar_hash));

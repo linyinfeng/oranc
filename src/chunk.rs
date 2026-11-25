@@ -10,19 +10,37 @@ use tokio::sync::mpsc;
 /// Creates a channel whose writer sends data in chunks of `chunk_size`
 /// bytes, blocking while `capacity` chunks are waiting to be received.
 ///
-/// At most `capacity + 1` chunks are buffered by the channel.
+/// At most `capacity + 1` chunks are buffered by the channel. The stream
+/// ends once the writer finishes, and fails if the writer is dropped
+/// without finishing.
 pub fn channel(
     chunk_size: usize,
     capacity: usize,
-) -> (ChunkWriter, impl Stream<Item = Bytes> + Send + 'static) {
+) -> (
+    ChunkWriter,
+    impl Stream<Item = io::Result<Bytes>> + Send + 'static,
+) {
     assert!(chunk_size > 0, "chunk size must be positive");
-    let (sender, mut receiver) = mpsc::channel(capacity);
+    let (sender, receiver) = mpsc::channel(capacity);
     let writer = ChunkWriter {
         buffer: BytesMut::new(),
         chunk_size,
         sender,
     };
-    let chunks = stream::poll_fn(move |cx| receiver.poll_recv(cx));
+    let chunks = stream::unfold(Some(receiver), |receiver| async move {
+        let mut receiver = receiver?;
+        match receiver.recv().await {
+            Some(Message::Chunk(chunk)) => Some((Ok(chunk), Some(receiver))),
+            Some(Message::End) => None,
+            None => {
+                let error = io::Error::new(
+                    io::ErrorKind::UnexpectedEof,
+                    "chunk writer dropped before finishing",
+                );
+                Some((Err(error), None))
+            }
+        }
+    });
     (writer, chunks)
 }
 
@@ -33,7 +51,13 @@ pub fn channel(
 pub struct ChunkWriter {
     buffer: BytesMut,
     chunk_size: usize,
-    sender: mpsc::Sender<Bytes>,
+    sender: mpsc::Sender<Message>,
+}
+
+enum Message {
+    Chunk(Bytes),
+    /// The writer finished, no chunk follows.
+    End,
 }
 
 /// Error of writing to a [`ChunkWriter`] whose receiving stream is dropped.
@@ -42,9 +66,10 @@ pub struct ChunkWriter {
 pub struct StreamDropped;
 
 impl ChunkWriter {
-    /// Sends the remaining buffered data.
+    /// Sends the remaining buffered data and ends the stream.
     pub fn finish(mut self) -> io::Result<()> {
-        self.send_buffer()
+        self.send_buffer()?;
+        self.send(Message::End)
     }
 
     fn send_buffer(&mut self) -> io::Result<()> {
@@ -52,8 +77,12 @@ impl ChunkWriter {
             return Ok(());
         }
         let chunk = self.buffer.split().freeze();
+        self.send(Message::Chunk(chunk))
+    }
+
+    fn send(&self, message: Message) -> io::Result<()> {
         self.sender
-            .blocking_send(chunk)
+            .blocking_send(message)
             .map_err(|_| io::Error::new(io::ErrorKind::BrokenPipe, StreamDropped))
     }
 }
