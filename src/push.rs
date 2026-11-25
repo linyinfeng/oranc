@@ -17,12 +17,19 @@ const NIX_DB_DIR: &str = "/nix/var/nix/db";
 static NIX_DB_FILE: Lazy<String> = Lazy::new(|| format!("{}/db.sqlite", NIX_DB_DIR));
 const NAR_CONTENT_TYPE: &str = "application/x-nix-nar";
 const NARINFO_CONTENT_TYPE: &str = "text/x-nix-narinfo";
+/// Size of the chunks of compressed NAR passed from the encoder to the
+/// upload, the same as the chunk size of chunked uploads of `oci_client`.
+const NAR_CHUNK_SIZE: usize = 4 * 1024 * 1024;
+/// Number of chunks of compressed NAR waiting for upload before the encoder
+/// blocks.
+const NAR_CHUNK_CAPACITY: usize = 1;
 
 use crate::hashing::HashingWriter;
 use crate::nix::sign::{NixKeyPair, NixSignatureList};
 use crate::nix::{NarInfo, NixHash, PathInfo};
 use crate::registry::{OciBlob, OciItem, OciLocation, RegistryContext, RegistryOptions};
 use crate::{
+    chunk,
     error::Error,
     nix,
     options::{InitializeOptions, PushOptions, PushSubcommands},
@@ -251,13 +258,21 @@ async fn push_nar(
     options: &PushOptions,
     path_info: &PathInfo,
 ) -> Result<EncodedNar, Error> {
-    let (nar_file_data, encoded) = tokio::task::spawn_blocking({
+    let (writer, chunks) = chunk::channel(NAR_CHUNK_SIZE, NAR_CHUNK_CAPACITY);
+    let encoding = tokio::task::spawn_blocking({
         let store_path = path_info.path.clone();
         let nar_size = path_info.nar_size;
         let zstd_level = options.zstd_level;
-        move || encode_nar(&store_path, nar_size, zstd_level, Vec::new())
-    })
-    .await??;
+        move || {
+            let (writer, encoded) = encode_nar(&store_path, nar_size, zstd_level, writer)?;
+            writer.finish()?;
+            Ok::<_, Error>(encoded)
+        }
+    });
+    // TODO remove this collection once chunks are streamed to the registry
+    let (encoded, chunks) = tokio::join!(encoding, chunks.collect::<Vec<_>>());
+    let encoded = encoded??;
+    let nar_file_data = chunks.concat();
 
     let nar_hash = NixHash::from_sha256(&encoded.nar_sha256);
     let location = oci_location(options, nar_file_url(&nar_hash));
