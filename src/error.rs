@@ -39,6 +39,8 @@ pub enum Error {
     InvalidBlobSize(u64),
     #[error("nar size not match: expected = {0}, actual = {1}")]
     NarSizeNotMatch(i64, u64),
+    #[error("uploaded blob not match: expected = {0} ({1} bytes), actual = {2} ({3} bytes)")]
+    UploadedBlobNotMatch(String, u64, String, u64),
     #[error("retry all fails: {0:?}")]
     RetryAllFails(Vec<Error>),
     #[error("push failed")]
@@ -135,6 +137,7 @@ impl Error {
             Error::InvalidLayerSize(_) => StatusCode::INTERNAL_SERVER_ERROR,
             Error::InvalidBlobSize(_) => StatusCode::INTERNAL_SERVER_ERROR,
             Error::NarSizeNotMatch(_, _) => StatusCode::INTERNAL_SERVER_ERROR,
+            Error::UploadedBlobNotMatch(_, _, _, _) => StatusCode::INTERNAL_SERVER_ERROR,
             Error::RetryAllFails(_) => StatusCode::INTERNAL_SERVER_ERROR,
             Error::PushFailed => StatusCode::INTERNAL_SERVER_ERROR,
             Error::Nar(_) => StatusCode::INTERNAL_SERVER_ERROR,

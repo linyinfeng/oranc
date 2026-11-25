@@ -300,10 +300,19 @@ async fn push_nar_attempt(
         // dry run
         return Ok(encoded);
     };
+    let (digest, size) = (&uploaded.blob_digest, uploaded.size);
+    let expected_digest = registry::sha256_oci_digest(&encoded.file_sha256);
+    if *digest != expected_digest || size != encoded.file_size {
+        return Err(Error::UploadedBlobNotMatch(
+            expected_digest,
+            encoded.file_size,
+            digest.clone(),
+            size,
+        ));
+    }
     let nar_hash = NixHash::from_sha256(&encoded.nar_sha256);
     let location = oci_location(options, nar_file_url(&nar_hash));
     let content_type = Some(NAR_CONTENT_TYPE.to_owned());
-    let (digest, size) = (&uploaded.blob_digest, uploaded.size);
     registry::push_manifest(ctx, &location, content_type, digest, size).await?;
     Ok(encoded)
 }
