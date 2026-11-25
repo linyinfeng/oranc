@@ -287,21 +287,24 @@ async fn push_nar_attempt(
     let uploading = async {
         if ctx.options.dry_run {
             log::debug!("dry run, skipped");
-            return Ok(chunks.try_for_each(|_| future::ok(())).await?);
+            chunks.try_for_each(|_| future::ok(())).await?;
+            return Ok(None);
         }
-        registry::push_blob_stream(ctx, &options.registry, &options.repository, chunks).await
+        let blob = registry::push_blob_stream(ctx, &options.registry, &options.repository, chunks);
+        Ok(Some(blob.await?))
     };
     let (encoded, uploaded) = tokio::join!(encoding, uploading);
-    let (encoded, ()) = join_encoding(encoded?, uploaded)?;
+    let (encoded, uploaded) = join_encoding(encoded?, uploaded)?;
 
-    if ctx.options.dry_run {
+    let Some(uploaded) = uploaded else {
+        // dry run
         return Ok(encoded);
-    }
+    };
     let nar_hash = NixHash::from_sha256(&encoded.nar_sha256);
     let location = oci_location(options, nar_file_url(&nar_hash));
-    let digest = registry::sha256_oci_digest(&encoded.file_sha256);
     let content_type = Some(NAR_CONTENT_TYPE.to_owned());
-    registry::push_manifest(ctx, &location, content_type, &digest, encoded.file_size).await?;
+    let (digest, size) = (&uploaded.blob_digest, uploaded.size);
+    registry::push_manifest(ctx, &location, content_type, digest, size).await?;
     Ok(encoded)
 }
 

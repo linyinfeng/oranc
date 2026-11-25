@@ -17,7 +17,7 @@ use futures::{Stream, TryStreamExt};
 use maplit::btreemap;
 use oci_client::{
     Client, Reference,
-    client::{ClientConfig, ClientProtocol, Config},
+    client::{ClientConfig, ClientProtocol, Config, PushBlobStreamChunkedResponse},
     config::{Architecture, ConfigFile, Os, Rootfs},
     errors::{OciDistributionError, OciErrorCode},
     manifest::{OciDescriptor, OciImageManifest},
@@ -349,7 +349,8 @@ fn build_image(
     Ok((config, image_manifest))
 }
 
-/// Pushes the blob streamed by `data` to `repository` in `registry`.
+/// Pushes the blob streamed by `data` to `repository` in `registry`,
+/// returning its digest and size.
 ///
 /// The digest of the blob is computed while streaming, so `data` is pushed
 /// in chunks.
@@ -358,7 +359,7 @@ pub async fn push_blob_stream(
     registry: &str,
     repository: &str,
     data: impl Stream<Item = io::Result<Bytes>> + Send + 'static,
-) -> Result<(), Error> {
+) -> Result<PushBlobStreamChunkedResponse, Error> {
     // blob uploads only depend on the registry and the repository of a reference
     let reference = Reference::with_tag(
         registry.to_owned(),
@@ -369,10 +370,10 @@ pub async fn push_blob_stream(
     client
         .store_auth_if_needed(reference.resolve_registry(), &ctx.auth)
         .await;
-    client
+    let response = client
         .push_blob_stream_chunked(&reference, data.map_err(OciDistributionError::from))
         .await?;
-    Ok(())
+    Ok(response)
 }
 
 /// Pushes the config and the manifest of a single layer image whose layer,
