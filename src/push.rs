@@ -296,7 +296,7 @@ async fn push_nar_attempt(
         Ok(Some(blob.await?))
     };
     let (encoded, uploaded) = tokio::join!(encoding, uploading);
-    let (encoded, uploaded) = join_encoding(encoded?, uploaded)?;
+    let (encoded, uploaded) = combine_stream_results(encoded?, uploaded)?;
 
     let Some(uploaded) = uploaded else {
         // dry run
@@ -319,16 +319,15 @@ async fn push_nar_attempt(
     Ok(encoded)
 }
 
-/// Joins the results of encoding a NAR into a [`chunk::channel`] and of
-/// consuming its chunks concurrently, returning the error that stopped them
-/// if any.
-fn join_encoding<T>(
-    encoded: Result<EncodedNar, Error>,
-    consumed: Result<T, Error>,
-) -> Result<(EncodedNar, T), Error> {
-    match (encoded, consumed) {
-        (Ok(encoded), Ok(consumed)) => Ok((encoded, consumed)),
-        // encoding stopped because consuming failed and dropped the chunks
+/// Combines the results of writing to a [`chunk::channel`] and consuming its
+/// stream concurrently, returning the error that stopped them if any.
+fn combine_stream_results<P, C>(
+    produced: Result<P, Error>,
+    consumed: Result<C, Error>,
+) -> Result<(P, C), Error> {
+    match (produced, consumed) {
+        (Ok(produced), Ok(consumed)) => Ok((produced, consumed)),
+        // writing stopped because consuming failed and dropped the stream
         (Err(Error::Io(e)), Err(consumer_error)) if chunk::is_stream_dropped(&e) => {
             Err(consumer_error)
         }
