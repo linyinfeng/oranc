@@ -224,54 +224,38 @@ async fn push_one(
     })
     .await??;
 
-    let to_put = tokio::task::spawn_blocking({
-        let options = options.clone();
-        let key_pair = key_pair.clone();
-        move || -> Result<_, Error> {
-            let store_path = path_info.path.clone();
-            let store_path_hash = nix::store_path_to_hash(&options, &store_path)?;
+    let store_path_hash = nix::store_path_to_hash(options, &path_info.path)?;
 
-            log::info!("[{task_header}] pushing  '{}'...", store_path);
+    log::info!("[{task_header}] pushing  '{}'...", path_info.path);
 
-            let nar_info_filename = format!("{store_path_hash}.narinfo");
-            let (nar_file_data, encoded) = encode_nar(
-                &store_path,
-                path_info.nar_size,
-                options.zstd_level,
-                Vec::new(),
-            )?;
-            let nar_info = build_nar_info(&options, &key_pair, path_info, &encoded)?;
-            let nar_file_url = nar_info.url.clone();
-            let nar_info_content = nar_info.to_string();
-            log::debug!("[{task_header}] narinfo:\n{nar_info_content}");
-            let nar_info_data = nar_info_content.into_bytes();
-
-            Ok(vec![
-                // push nar first
-                (
-                    oci_location(&options, nar_file_url),
-                    OciItem {
-                        content_type: Some(NAR_CONTENT_TYPE.to_owned()),
-                        blob: OciBlob::from_bytes(nar_file_data),
-                    },
-                ),
-                (
-                    oci_location(&options, nar_info_filename),
-                    OciItem {
-                        content_type: Some(NARINFO_CONTENT_TYPE.to_owned()),
-                        blob: OciBlob::from_bytes(nar_info_data),
-                    },
-                ),
-            ])
-        }
+    let (nar_file_data, encoded) = tokio::task::spawn_blocking({
+        let store_path = path_info.path.clone();
+        let nar_size = path_info.nar_size;
+        let zstd_level = options.zstd_level;
+        move || encode_nar(&store_path, nar_size, zstd_level, Vec::new())
     })
     .await??;
 
     let ctx = RegistryOptions::from_push_options(options).context(auth.clone());
-    for (location, item) in to_put {
-        registry::put(&ctx, &location, item).await?;
-    }
-    Ok(())
+
+    // push nar first
+    let nar_hash = NixHash::from_sha256(&encoded.nar_sha256);
+    let nar_location = oci_location(options, nar_file_url(&nar_hash));
+    let nar_item = OciItem {
+        content_type: Some(NAR_CONTENT_TYPE.to_owned()),
+        blob: OciBlob::from_bytes(nar_file_data),
+    };
+    registry::put(&ctx, &nar_location, nar_item).await?;
+
+    let nar_info = build_nar_info(options, key_pair, path_info, &encoded)?;
+    let nar_info_content = nar_info.to_string();
+    log::debug!("[{task_header}] narinfo:\n{nar_info_content}");
+    let nar_info_location = oci_location(options, format!("{store_path_hash}.narinfo"));
+    let nar_info_item = OciItem {
+        content_type: Some(NARINFO_CONTENT_TYPE.to_owned()),
+        blob: OciBlob::from_bytes(nar_info_content.into_bytes()),
+    };
+    registry::put(&ctx, &nar_info_location, nar_info_item).await
 }
 
 async fn handle_push_result(r: Result<(), Error>, failed: &AtomicBool) {
