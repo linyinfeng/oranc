@@ -113,8 +113,11 @@ struct EncodedNar {
 
 /// Encodes `store_path` as a NAR and writes it compressed with zstd into
 /// `sink`, returning `sink` back.
+///
+/// Fails if the size of the NAR is not `expected_nar_size`.
 fn encode_nar<W: Write>(
     store_path: &str,
+    expected_nar_size: i64,
     zstd_level: i32,
     sink: W,
 ) -> Result<(W, EncodedNar), Error> {
@@ -124,6 +127,9 @@ fn encode_nar<W: Write>(
     let mut nar_encoder = nix_nar::Encoder::new(store_path)?;
     io::copy(&mut nar_encoder, &mut nar_writer)?;
     let (compressor, nar_size, nar_sha256) = nar_writer.finish();
+    if u64::try_from(expected_nar_size).map_err(Error::InvalidNarSize)? != nar_size {
+        return Err(Error::NarSizeNotMatch(expected_nar_size, nar_size));
+    }
     let (sink, file_size, file_sha256) = compressor.finish()?.finish();
     let encoded = EncodedNar {
         nar_sha256,
@@ -161,7 +167,7 @@ async fn push_one(
     let to_put = tokio::task::spawn_blocking({
         let options = options.clone();
         let key_pair = key_pair.clone();
-        move || {
+        move || -> Result<_, Error> {
             // this function runs in parallel and use its own connections
             let conn = nix_db_connection(&options)?;
 
@@ -172,19 +178,16 @@ async fn push_one(
             log::info!("[{task_header}] pushing  '{}'...", store_path);
 
             let nar_info_filename = format!("{store_path_hash}.narinfo");
-            let (nar_file_data, encoded) = encode_nar(&store_path, options.zstd_level, Vec::new())?;
+            let (nar_file_data, encoded) = encode_nar(
+                &store_path,
+                path_info.nar_size,
+                options.zstd_level,
+                Vec::new(),
+            )?;
             let nar_hash = NixHash::from_sha256(&encoded.nar_sha256);
             let nar_size = encoded.nar_size;
             let nar_file_hash = NixHash::from_sha256(&encoded.file_sha256);
             let nar_file_size = encoded.file_size;
-
-            let expected_nar_size: u64 = path_info
-                .nar_size
-                .try_into()
-                .map_err(Error::InvalidNarSize)?;
-            if nar_size != expected_nar_size {
-                return Err(Error::NarSizeNotMatch(path_info.nar_size, nar_size));
-            }
 
             let nar_filename = format!("{}.nar.zst", nar_hash.base32);
             let nar_file_url = format!("nar/{nar_filename}");
