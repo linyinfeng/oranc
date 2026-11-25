@@ -1,5 +1,6 @@
 use std::collections::{HashMap, VecDeque};
 use std::fmt;
+use std::io;
 use std::sync::Arc;
 
 use crate::convert::EncodingOptions;
@@ -10,15 +11,19 @@ use crate::{
 };
 use axum::RequestPartsExt;
 use axum::extract::{FromRef, FromRequestParts, Path, Query, State};
+use bytes::Bytes;
+use data_encoding::HEXLOWER;
+use futures::{Stream, TryStreamExt};
 use maplit::btreemap;
 use oci_client::{
     Client, Reference,
-    client::{ClientConfig, ClientProtocol, Config, ImageLayer},
+    client::{ClientConfig, ClientProtocol, Config, PushBlobStreamChunkedResponse},
     config::{Architecture, ConfigFile, Os, Rootfs},
     errors::{OciDistributionError, OciErrorCode},
-    manifest::OciImageManifest,
+    manifest::{OciDescriptor, OciImageManifest},
     secrets::RegistryAuth,
 };
+use sha2::{Digest, Sha256};
 
 pub const LAYER_MEDIA_TYPE: &str = "application/octet-stream";
 pub const CONTENT_TYPE_ANNOTATION: &str = "com.linyinfeng.oranc.content.type";
@@ -47,7 +52,15 @@ pub struct OciLocation {
 #[derive(Debug, Clone)]
 pub struct OciItem {
     pub content_type: Option<String>,
-    pub data: Vec<u8>,
+    pub blob: OciBlob,
+}
+
+/// Content of an [`OciItem`], together with its OCI digest and size.
+#[derive(Debug, Clone)]
+pub struct OciBlob {
+    digest: String,
+    size: u64,
+    data: Bytes,
 }
 
 #[derive(Debug, Clone)]
@@ -124,7 +137,7 @@ impl OciLocation {
 }
 
 pub async fn get_layer_info(
-    ctx: &mut RegistryContext,
+    ctx: &RegistryContext,
     location: &OciLocation,
 ) -> Result<Option<LayerInfo>, Error> {
     let max_retry = ctx.options.max_retry;
@@ -220,30 +233,85 @@ pub async fn get_layer_info(
 }
 
 pub async fn put(
-    ctx: &mut RegistryContext,
+    ctx: &RegistryContext,
     location: &OciLocation,
     oci_item: OciItem,
 ) -> Result<(), Error> {
-    let content_type = match oci_item.content_type {
+    let blob = oci_item.blob;
+    let (config, image_manifest) =
+        build_image(location, oci_item.content_type, &blob.digest, blob.size)?;
+
+    let (reference, _fallbacks) = location.reference(&ctx.options.encoding_options);
+    retry(ctx, &format!("push {reference:?}"), || async {
+        if ctx.options.dry_run {
+            log::debug!("dry run, skipped");
+            return Ok(());
+        }
+        push_image(ctx, &reference, &blob, &config, &image_manifest).await?;
+        Ok(())
+    })
+    .await
+}
+
+/// Runs `f` until it succeeds, at most `max_retry` times.
+///
+/// Only registry errors are retried, any other error is returned at once.
+pub async fn retry<T, F, Fut>(
+    ctx: &RegistryContext,
+    description: &str,
+    mut f: F,
+) -> Result<T, Error>
+where
+    F: FnMut() -> Fut,
+    Fut: Future<Output = Result<T, Error>>,
+{
+    let max_retry = ctx.options.max_retry;
+    if max_retry < 1 {
+        return Err(Error::InvalidMaxRetry(max_retry));
+    }
+    let mut errors = vec![];
+    for attempt in 1..=max_retry {
+        log::debug!("{description}, attempt {attempt}/{max_retry}");
+        match f().await {
+            Ok(r) => return Ok(r),
+            Err(e @ Error::OciDistribution(_)) => {
+                log::warn!("{description}, attempt {attempt}/{max_retry} failed: {}", e);
+                errors.push(e);
+            }
+            Err(e) => return Err(e),
+        }
+    }
+    Err(Error::RetryAllFails(errors))
+}
+
+/// Builds the config and the manifest of a single layer image whose
+/// layer is the blob with the given digest and size.
+fn build_image(
+    location: &OciLocation,
+    content_type: Option<String>,
+    digest: &str,
+    size: u64,
+) -> Result<(Config, OciImageManifest), Error> {
+    let content_type = match content_type {
         None => "application/octet-stream".to_string(),
         Some(c) => c,
     };
     let layer_annotations = btreemap! {
         CONTENT_TYPE_ANNOTATION.to_string() => content_type,
     };
-    let layer = ImageLayer::new(
-        oci_item.data,
-        LAYER_MEDIA_TYPE.to_string(),
-        Some(layer_annotations),
-    );
-    let layer_digest = layer.sha256_digest();
-    let layers = vec![layer];
+    let layer_descriptor = OciDescriptor {
+        media_type: LAYER_MEDIA_TYPE.to_string(),
+        digest: digest.to_owned(),
+        size: i64::try_from(size).map_err(|_| Error::InvalidBlobSize(size))?,
+        annotations: Some(layer_annotations),
+        ..Default::default()
+    };
 
     let rootfs = Rootfs {
         r#type: "layers".to_string(),
         diff_ids: vec![
             // just use layer digest
-            layer_digest,
+            digest.to_owned(),
         ],
     };
     let config_file = ConfigFile {
@@ -260,48 +328,127 @@ pub async fn put(
     let config = Config::oci_v1_from_config_file(config_file, config_annotations)
         .map_err(Error::OciDistribution)?;
 
+    let config_descriptor = OciDescriptor {
+        media_type: config.media_type.clone(),
+        digest: config.sha256_digest(),
+        size: config.data.len() as i64,
+        ..Default::default()
+    };
+
     let key = &location.key;
     let image_annotations = btreemap! {
         "com.linyinfeng.oranc.key".to_string() => key.to_owned(),
         "org.opencontainers.image.description".to_string() => key.to_owned(),
     };
-    let image_manifest = OciImageManifest::build(&layers, &config, Some(image_annotations));
+    let image_manifest = OciImageManifest {
+        config: config_descriptor,
+        layers: vec![layer_descriptor],
+        annotations: Some(image_annotations),
+        ..Default::default()
+    };
+    Ok((config, image_manifest))
+}
 
-    let max_retry = ctx.options.max_retry;
-    if max_retry < 1 {
-        return Err(Error::InvalidMaxRetry(max_retry));
-    }
+/// Pushes the blob streamed by `data` to `repository` in `registry`,
+/// returning its digest and size.
+///
+/// The digest of the blob is computed while streaming, so `data` is pushed
+/// in chunks.
+pub async fn push_blob_stream(
+    ctx: &RegistryContext,
+    registry: &str,
+    repository: &str,
+    data: impl Stream<Item = io::Result<Bytes>> + Send + 'static,
+) -> Result<PushBlobStreamChunkedResponse, Error> {
+    // OCI blob uploads are repository-scoped (`/v2/<repo>/blobs/uploads/`) and never
+    // use the tag, and the real NAR tag is not known until streaming finishes hashing,
+    // but `oci_client::Reference` cannot be constructed without a tag or digest.
+    let reference = Reference::with_tag(
+        registry.to_owned(),
+        repository.to_owned(),
+        "placeholder".to_owned(),
+    );
+    let client = &ctx.client;
+    client
+        .store_auth_if_needed(reference.resolve_registry(), &ctx.auth)
+        .await;
+    let response = client
+        .push_blob_stream_chunked(&reference, data.map_err(OciDistributionError::from))
+        .await?;
+    Ok(response)
+}
+
+/// Pushes the config and the manifest of a single layer image whose layer,
+/// the blob with the given digest and size, has already been pushed.
+pub async fn push_manifest(
+    ctx: &RegistryContext,
+    location: &OciLocation,
+    content_type: Option<String>,
+    digest: &str,
+    size: u64,
+) -> Result<(), Error> {
+    let (config, image_manifest) = build_image(location, content_type, digest, size)?;
     let (reference, _fallbacks) = location.reference(&ctx.options.encoding_options);
-    let mut errors = vec![];
-    for attempt in 1..=max_retry {
-        log::debug!("push {reference:?}, attempt {attempt}/{max_retry}");
-        if ctx.options.dry_run {
-            log::debug!("dry run, skipped");
-            return Ok(());
-        }
-        match ctx
-            .client
-            .push(
-                &reference,
-                &layers,
-                config.clone(),
-                &ctx.auth,
-                Some(image_manifest.clone()),
-            )
-            .await
-        {
-            Ok(_push_response) => return Ok(()),
-            Err(oci_error) => {
-                let e = oci_error.into();
-                log::warn!(
-                    "push {reference:?}, attempt {attempt}/{max_retry} failed: {}",
-                    e
-                );
-                errors.push(e);
-            }
+    push_image_manifest(ctx, &reference, &config, &image_manifest).await?;
+    Ok(())
+}
+
+/// Pushes the layer, the config and the manifest of an image in order.
+///
+/// Equivalent to [`Client::push`] for a single layer image.
+async fn push_image(
+    ctx: &RegistryContext,
+    reference: &Reference,
+    blob: &OciBlob,
+    config: &Config,
+    manifest: &OciImageManifest,
+) -> Result<(), OciDistributionError> {
+    let client = &ctx.client;
+    client
+        .store_auth_if_needed(reference.resolve_registry(), &ctx.auth)
+        .await;
+    client
+        .push_blob(reference, blob.data.clone(), &blob.digest)
+        .await?;
+    push_image_manifest(ctx, reference, config, manifest).await
+}
+
+/// Pushes the config and the manifest of an image in order, assuming that
+/// its layer has already been pushed.
+async fn push_image_manifest(
+    ctx: &RegistryContext,
+    reference: &Reference,
+    config: &Config,
+    manifest: &OciImageManifest,
+) -> Result<(), OciDistributionError> {
+    let client = &ctx.client;
+    client
+        .store_auth_if_needed(reference.resolve_registry(), &ctx.auth)
+        .await;
+    client
+        .push_blob(reference, config.data.clone(), &manifest.config.digest)
+        .await?;
+    client
+        .push_manifest(reference, &manifest.clone().into())
+        .await?;
+    Ok(())
+}
+
+impl OciBlob {
+    /// Creates a blob from in-memory data, computing its digest.
+    pub fn from_bytes(data: impl Into<Bytes>) -> Self {
+        let data = data.into();
+        Self {
+            digest: sha256_oci_digest(&Sha256::digest(&data)),
+            size: data.len() as u64,
+            data,
         }
     }
-    Err(Error::RetryAllFails(errors))
+}
+
+/// Formats a raw SHA-256 hash as an OCI content digest.
+pub fn sha256_oci_digest(sha256: &[u8]) -> String {
+    format!("sha256:{}", HEXLOWER.encode(sha256))
 }
 
 impl RegistryOptions {

@@ -1,4 +1,4 @@
-use std::io::{self};
+use std::io::{self, Read, Write};
 
 use std::sync::atomic::AtomicUsize;
 use std::{
@@ -7,7 +7,7 @@ use std::{
     sync::atomic::{AtomicBool, Ordering},
 };
 
-use futures::StreamExt;
+use futures::{StreamExt, TryStreamExt, future};
 
 use oci_client::secrets::RegistryAuth;
 use once_cell::sync::Lazy;
@@ -17,11 +17,19 @@ const NIX_DB_DIR: &str = "/nix/var/nix/db";
 static NIX_DB_FILE: Lazy<String> = Lazy::new(|| format!("{}/db.sqlite", NIX_DB_DIR));
 const NAR_CONTENT_TYPE: &str = "application/x-nix-nar";
 const NARINFO_CONTENT_TYPE: &str = "text/x-nix-narinfo";
+/// Size of the chunks of compressed NAR passed from the encoder to the
+/// upload, the same as the chunk size of chunked uploads of `oci_client`.
+const NAR_CHUNK_SIZE: usize = 4 * 1024 * 1024;
+/// Number of chunks of compressed NAR waiting for upload before the encoder
+/// blocks.
+const NAR_CHUNK_CAPACITY: usize = 1;
 
+use crate::hashing::HashingWriter;
 use crate::nix::sign::{NixKeyPair, NixSignatureList};
-use crate::nix::{NarInfo, NixHash};
-use crate::registry::{OciItem, OciLocation, RegistryOptions};
+use crate::nix::{NarInfo, NixHash, PathInfo};
+use crate::registry::{OciBlob, OciItem, OciLocation, RegistryContext, RegistryOptions};
 use crate::{
+    chunk,
     error::Error,
     nix,
     options::{InitializeOptions, PushOptions, PushSubcommands},
@@ -93,6 +101,111 @@ Priority: {priority}
     )
 }
 
+/// Returns the location of `key` in the repository to push to.
+fn oci_location(options: &PushOptions, key: String) -> OciLocation {
+    OciLocation {
+        registry: options.registry.clone(),
+        repository: options.repository.clone(),
+        key,
+    }
+}
+
+/// Returns the URL, relative to the cache, of the compressed NAR whose
+/// uncompressed content has hash `nar_hash`.
+fn nar_file_url(nar_hash: &NixHash) -> String {
+    format!("nar/{}.nar.zst", nar_hash.base32)
+}
+
+/// SHA-256 hashes and sizes of a NAR and of its compressed form.
+struct EncodedNar {
+    nar_sha256: [u8; 32],
+    nar_size: u64,
+    file_sha256: [u8; 32],
+    file_size: u64,
+}
+
+/// Encodes `store_path` as a NAR and writes it compressed with zstd into
+/// `sink`, returning `sink` back.
+///
+/// Fails if the size of the NAR is not `expected_nar_size`.
+fn encode_nar<W: Write>(
+    store_path: &str,
+    expected_nar_size: i64,
+    zstd_level: i32,
+    sink: W,
+) -> Result<(W, EncodedNar), Error> {
+    let expected_size = u64::try_from(expected_nar_size).map_err(Error::InvalidNarSize)?;
+    let file_writer = HashingWriter::new(sink);
+    let mut compressor = zstd::Encoder::new(file_writer, zstd_level)?;
+    compressor.set_pledged_src_size(Some(expected_size))?;
+    let mut nar_writer = HashingWriter::new(compressor);
+    let mut nar_encoder = nix_nar::Encoder::new(store_path)?;
+    // Bound what goes into zstd so set_pledged_src_size doesn't fail before we
+    // can report NarSizeNotMatch with the full actual size.
+    io::copy(
+        &mut nar_encoder.by_ref().take(expected_size),
+        &mut nar_writer,
+    )?;
+    let extra_size = io::copy(&mut nar_encoder, &mut io::sink())?;
+    let (compressor, nar_size, nar_sha256) = nar_writer.finish();
+    let actual_size = nar_size.saturating_add(extra_size);
+    if expected_size != actual_size {
+        return Err(Error::NarSizeNotMatch(expected_nar_size, actual_size));
+    }
+    let (sink, file_size, file_sha256) = compressor.finish()?.finish();
+    let encoded = EncodedNar {
+        nar_sha256,
+        nar_size,
+        file_sha256,
+        file_size,
+    };
+    Ok((sink, encoded))
+}
+
+/// Builds the narinfo of the store path described by `path_info`, whose
+/// NAR is `encoded`, and signs it with `key_pair`.
+fn build_nar_info(
+    options: &PushOptions,
+    key_pair: &NixKeyPair,
+    path_info: PathInfo,
+    encoded: &EncodedNar,
+) -> Result<NarInfo, Error> {
+    let nar_hash = NixHash::from_sha256(&encoded.nar_sha256);
+    let references: Vec<String> = path_info
+        .reference_store_paths
+        .iter()
+        .map(|p| nix::strip_store_dir(options, p))
+        .collect::<Result<_, _>>()?;
+    let deriver: Option<String> = path_info
+        .deriver_store_paths
+        .map_or(Ok::<_, Error>(None), |p| {
+            Ok(Some(nix::strip_store_dir(options, &p)?))
+        })?;
+    let fingerprint = nix::nar_info_fingerprint(
+        &options.store_dir,
+        &path_info.path,
+        &nar_hash,
+        encoded.nar_size,
+        &references,
+    );
+    let sign = key_pair.sign(fingerprint.as_bytes())?;
+    let mut sig_list = NixSignatureList::from_optional_str(&path_info.sigs)?;
+    sig_list.merge(key_pair, fingerprint.as_bytes(), sign)?;
+    Ok(NarInfo {
+        store_path: path_info.path,
+        url: nar_file_url(&nar_hash),
+        compression: "zstd".to_owned(),
+        file_hash: NixHash::from_sha256(&encoded.file_sha256),
+        file_size: encoded.file_size,
+        nar_hash,
+        nar_size: encoded.nar_size,
+        references,
+        deriver,
+        sigs: sig_list,
+        ca: path_info.ca,
+    })
+}
+
 async fn push_one(
     options: &PushOptions,
     auth: &RegistryAuth,
@@ -117,112 +230,139 @@ async fn push_one(
 
     not_failed()?;
 
-    let to_put = tokio::task::spawn_blocking({
+    let path_info = tokio::task::spawn_blocking({
         let options = options.clone();
-        let key_pair = key_pair.clone();
         move || {
             // this function runs in parallel and use its own connections
             let conn = nix_db_connection(&options)?;
-
-            let path_info = nix::query_path_info(&conn, id)?;
-            let store_path = path_info.path.clone();
-            let store_path_hash = nix::store_path_to_hash(&options, &store_path)?;
-
-            log::info!("[{task_header}] pushing  '{}'...", store_path);
-
-            let nar_info_filename = format!("{store_path_hash}.narinfo");
-            let mut nar_data = vec![];
-            let mut nar_encoder = nix_nar::Encoder::new(&store_path)?;
-            io::copy(&mut nar_encoder, &mut nar_data)?;
-            let nar_size = nar_data.len();
-            let nar_hash = NixHash::hash_data(&nar_data[..]);
-            let mut nar_file_data = vec![];
-            zstd::stream::copy_encode(&nar_data[..], &mut nar_file_data, options.zstd_level)?;
-            drop(nar_data); // save some memory
-            let nar_file_size = nar_file_data.len();
-            let nar_file_hash = NixHash::hash_data(&nar_file_data[..]);
-
-            let expected_nar_size: usize = path_info
-                .nar_size
-                .try_into()
-                .map_err(Error::InvalidNarSize)?;
-            if nar_size != expected_nar_size {
-                return Err(Error::NarSizeNotMatch(path_info.nar_size, nar_size));
-            }
-
-            let nar_filename = format!("{}.nar.zst", nar_hash.base32);
-            let nar_file_url = format!("nar/{nar_filename}");
-            let references: Vec<String> = path_info
-                .reference_store_paths
-                .iter()
-                .map(|p| nix::strip_store_dir(&options, p))
-                .collect::<Result<_, _>>()?;
-            let deriver: Option<String> = path_info
-                .deriver_store_paths
-                .map_or(Ok::<_, Error>(None), |p| {
-                    Ok(Some(nix::strip_store_dir(&options, &p)?))
-                })?;
-            let nar_info_fingerprint = nix::nar_info_fingerprint(
-                &options.store_dir,
-                &store_path,
-                &nar_hash,
-                nar_size,
-                &references,
-            );
-            let nar_info_sign = key_pair.sign(nar_info_fingerprint.as_bytes())?;
-            let mut sig_list = NixSignatureList::from_optional_str(&path_info.sigs)?;
-            sig_list.merge(&key_pair, nar_info_fingerprint.as_bytes(), nar_info_sign)?;
-            let nar_info = NarInfo {
-                store_path,
-                url: nar_file_url.clone(),
-                compression: "zstd".to_owned(),
-                file_hash: nar_file_hash,
-                file_size: nar_file_size,
-                nar_hash,
-                nar_size,
-                references,
-                deriver,
-                sigs: sig_list,
-                ca: path_info.ca,
-            };
-            let nar_info_content = nar_info.to_string();
-            log::debug!("[{task_header}] narinfo:\n{nar_info_content}");
-            let nar_info_data = nar_info_content.into_bytes();
-
-            Ok(vec![
-                // push nar first
-                (
-                    OciLocation {
-                        registry: options.registry.clone(),
-                        repository: options.repository.clone(),
-                        key: nar_file_url,
-                    },
-                    OciItem {
-                        content_type: Some(NAR_CONTENT_TYPE.to_owned()),
-                        data: nar_file_data,
-                    },
-                ),
-                (
-                    OciLocation {
-                        registry: options.registry,
-                        repository: options.repository,
-                        key: nar_info_filename,
-                    },
-                    OciItem {
-                        content_type: Some(NARINFO_CONTENT_TYPE.to_owned()),
-                        data: nar_info_data,
-                    },
-                ),
-            ])
+            nix::query_path_info(&conn, id)
         }
     })
     .await??;
 
-    let mut ctx = RegistryOptions::from_push_options(options).context(auth.clone());
-    for (location, item) in to_put {
-        registry::put(&mut ctx, &location, item).await?;
+    let store_path_hash = nix::store_path_to_hash(options, &path_info.path)?;
+
+    log::info!("[{task_header}] pushing  '{}'...", path_info.path);
+
+    let ctx = RegistryOptions::from_push_options(options).context(auth.clone());
+
+    // push nar first
+    let encoded = push_nar(&ctx, options, &path_info).await?;
+
+    let nar_info = build_nar_info(options, key_pair, path_info, &encoded)?;
+    let nar_info_content = nar_info.to_string();
+    log::debug!("[{task_header}] narinfo:\n{nar_info_content}");
+    let nar_info_location = oci_location(options, format!("{store_path_hash}.narinfo"));
+    let nar_info_item = OciItem {
+        content_type: Some(NARINFO_CONTENT_TYPE.to_owned()),
+        blob: OciBlob::from_bytes(nar_info_content.into_bytes()),
+    };
+    registry::put(&ctx, &nar_info_location, nar_info_item).await
+}
+
+/// Encodes the NAR of the store path described by `path_info`, compresses
+/// it and pushes it, returning its hashes and sizes.
+///
+/// The NAR is encoded again on every blob upload attempt instead of being kept
+/// for retries.
+async fn push_nar(
+    ctx: &RegistryContext,
+    options: &PushOptions,
+    path_info: &PathInfo,
+) -> Result<EncodedNar, Error> {
+    let description = format!("push NAR blob of '{}'", path_info.path);
+    let encoded =
+        registry::retry(ctx, &description, || push_nar_blob(ctx, options, path_info)).await?;
+
+    if ctx.options.dry_run {
+        return Ok(encoded);
     }
-    Ok(())
+
+    let digest = registry::sha256_oci_digest(&encoded.file_sha256);
+    let size = encoded.file_size;
+    let nar_hash = NixHash::from_sha256(&encoded.nar_sha256);
+    let location = oci_location(options, nar_file_url(&nar_hash));
+    let description = format!("push NAR manifest of '{}'", path_info.path);
+    registry::retry(ctx, &description, || {
+        registry::push_manifest(
+            ctx,
+            &location,
+            Some(NAR_CONTENT_TYPE.to_owned()),
+            &digest,
+            size,
+        )
+    })
+    .await?;
+
+    Ok(encoded)
+}
+
+/// Makes one attempt of uploading the encoded NAR blob for [`push_nar`].
+async fn push_nar_blob(
+    ctx: &RegistryContext,
+    options: &PushOptions,
+    path_info: &PathInfo,
+) -> Result<EncodedNar, Error> {
+    let (writer, chunks) = chunk::channel(NAR_CHUNK_SIZE, NAR_CHUNK_CAPACITY);
+    let encoding = tokio::task::spawn_blocking({
+        let store_path = path_info.path.clone();
+        let nar_size = path_info.nar_size;
+        let zstd_level = options.zstd_level;
+        move || {
+            let (writer, encoded) = encode_nar(&store_path, nar_size, zstd_level, writer)?;
+            writer.finish()?;
+            Ok::<_, Error>(encoded)
+        }
+    });
+    let uploading = async {
+        let chunks = chunks.map_err(io::Error::other);
+        if ctx.options.dry_run {
+            log::debug!("dry run, skipped");
+            chunks.try_for_each(|_| future::ok(())).await?;
+            return Ok(None);
+        }
+        let mut chunks = Box::pin(chunks.peekable());
+        // Skip opening an upload session if encoding failed before sending any chunk.
+        if let Some(Err(err)) = chunks.as_mut().next_if(Result::is_err).await {
+            return Err(err.into());
+        }
+        let blob = registry::push_blob_stream(ctx, &options.registry, &options.repository, chunks);
+        Ok(Some(blob.await?))
+    };
+    let (encoded, uploaded) = tokio::join!(encoding, uploading);
+    let (encoded, uploaded) = combine_stream_results(encoded?, uploaded)?;
+
+    let Some(uploaded) = uploaded else {
+        // dry run
+        return Ok(encoded);
+    };
+    let (digest, size) = (&uploaded.blob_digest, uploaded.size);
+    let expected_digest = registry::sha256_oci_digest(&encoded.file_sha256);
+    if *digest != expected_digest || size != encoded.file_size {
+        return Err(Error::UploadedBlobNotMatch(
+            expected_digest,
+            encoded.file_size,
+            digest.clone(),
+            size,
+        ));
+    }
+    Ok(encoded)
+}
+
+/// Combines the results of writing to a [`chunk::channel`] and consuming its
+/// stream concurrently, returning the error that stopped them if any.
+fn combine_stream_results<P, C>(
+    produced: Result<P, Error>,
+    consumed: Result<C, Error>,
+) -> Result<(P, C), Error> {
+    match (produced, consumed) {
+        (Ok(produced), Ok(consumed)) => Ok((produced, consumed)),
+        // writing stopped because consuming failed and dropped the stream
+        (Err(Error::Io(e)), Err(consumer_error)) if chunk::is_stream_dropped(&e) => {
+            Err(consumer_error)
+        }
+        (Err(e), _) | (_, Err(e)) => Err(e),
+    }
 }
 
 async fn handle_push_result(r: Result<(), Error>, failed: &AtomicBool) {
@@ -325,16 +465,12 @@ pub async fn push_initialize_main(
     log::debug!("nix-cache-info:\n{nix_cache_info}");
     let key = "nix-cache-info".to_owned();
     let content_type = "text/x-nix-cache-info".to_owned();
-    let mut ctx = RegistryOptions::from_push_options(&options).context(auth);
-    let location = OciLocation {
-        registry: options.registry,
-        repository: options.repository,
-        key,
-    };
+    let ctx = RegistryOptions::from_push_options(&options).context(auth);
+    let location = oci_location(&options, key);
     let item = OciItem {
         content_type: Some(content_type),
-        data: nix_cache_info.into_bytes(),
+        blob: OciBlob::from_bytes(nix_cache_info.into_bytes()),
     };
-    registry::put(&mut ctx, &location, item).await?;
+    registry::put(&ctx, &location, item).await?;
     Ok(())
 }

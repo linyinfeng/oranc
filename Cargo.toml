@@ -16,7 +16,7 @@ reqwest = "*"
 oci-client = "*"
 clap = { version = "*", features = [ "cargo", "derive" ] }
 clap_complete = "*"
-tokio = {version = "*", features = [ "macros", "rt-multi-thread" ] }
+tokio = {version = "*", features = [ "macros", "rt-multi-thread", "sync" ] }
 futures = "*"
 tokio-util = {version = "*", features = [ ] }
 log = "*"

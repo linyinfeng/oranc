@@ -121,6 +121,9 @@ jobs:
         image: registry
         ports:
           - 5000:5000
+        env:
+          REGISTRY_LOG_LEVEL: warn
+          REGISTRY_LOG_ACCESSLOG_DISABLED: "true"
     steps:
       - name: Checkout
         uses: actions/checkout@main

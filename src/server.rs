@@ -3,10 +3,10 @@ use std::sync::Arc;
 use crate::error::Error;
 use crate::registry;
 use crate::registry::LayerInfo;
-use crate::registry::OciItem;
 use crate::registry::OciLocation;
 use crate::registry::RegistryOptions;
 use crate::registry::get_layer_info;
+use crate::registry::{OciBlob, OciItem};
 use crate::server::auth::Auth;
 
 pub mod auth;
@@ -65,13 +65,13 @@ async fn get_key(
     if let Some(response) = upstream::check_and_redirect(&ctx, &location.key, &auth).await? {
         return Ok(response);
     }
-    let mut registry_ctx = RegistryOptions::from_server_options(&ctx.options).context(auth);
+    let registry_ctx = RegistryOptions::from_server_options(&ctx.options).context(auth);
     let LayerInfo {
         reference,
         digest,
         size,
         content_type,
-    } = get_layer_info(&mut registry_ctx, &location)
+    } = get_layer_info(&registry_ctx, &location)
         .await?
         .ok_or(Error::ReferenceNotFound(location.clone()))?;
     let blob_stream = registry_ctx
@@ -96,13 +96,13 @@ async fn head_key(
     if let Some(response) = upstream::check_and_redirect(&ctx, &location.key, &auth).await? {
         return Ok(response);
     }
-    let mut registry_ctx = RegistryOptions::from_server_options(&ctx.options).context(auth);
+    let registry_ctx = RegistryOptions::from_server_options(&ctx.options).context(auth);
     let LayerInfo {
         reference: _,
         digest: _,
         size,
         content_type,
-    } = get_layer_info(&mut registry_ctx, &location)
+    } = get_layer_info(&registry_ctx, &location)
         .await?
         .ok_or(Error::ReferenceNotFound(location.clone()))?;
     Response::builder()
@@ -122,12 +122,12 @@ async fn put_key(
 ) -> Result<Response<Body>, Error> {
     log::info!("put: {location}");
     // on upstream query for put
-    let mut registry_ctx = RegistryOptions::from_server_options(&ctx.options).context(auth);
+    let registry_ctx = RegistryOptions::from_server_options(&ctx.options).context(auth);
     let item = OciItem {
         content_type: content_type.map(|TypedHeader(typ)| typ.to_string()),
-        data: body.to_vec(),
+        blob: OciBlob::from_bytes(body),
     };
-    registry::put(&mut registry_ctx, &location, item).await?;
+    registry::put(&registry_ctx, &location, item).await?;
     Response::builder()
         .status(StatusCode::OK)
         .body(OK_RESPONSE_BODY.into()) // s3 client will parse the body

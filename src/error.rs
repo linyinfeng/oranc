@@ -32,11 +32,15 @@ pub enum Error {
     #[error("tokio join error: {0}")]
     Join(#[from] tokio::task::JoinError),
     #[error("invalid nar size: {0}")]
-    InvalidNarSize(<i64 as TryInto<usize>>::Error),
+    InvalidNarSize(<i64 as TryInto<u64>>::Error),
     #[error("invalid image layer size: {0}")]
     InvalidLayerSize(i64),
+    #[error("invalid blob size: {0}")]
+    InvalidBlobSize(u64),
     #[error("nar size not match: expected = {0}, actual = {1}")]
-    NarSizeNotMatch(i64, usize),
+    NarSizeNotMatch(i64, u64),
+    #[error("uploaded blob not match: expected = {0} ({1} bytes), actual = {2} ({3} bytes)")]
+    UploadedBlobNotMatch(String, u64, String, u64),
     #[error("retry all fails: {0:?}")]
     RetryAllFails(Vec<Error>),
     #[error("push failed")]
@@ -131,7 +135,9 @@ impl Error {
             Error::Join(_) => StatusCode::INTERNAL_SERVER_ERROR,
             Error::InvalidNarSize(_) => StatusCode::INTERNAL_SERVER_ERROR,
             Error::InvalidLayerSize(_) => StatusCode::INTERNAL_SERVER_ERROR,
+            Error::InvalidBlobSize(_) => StatusCode::INTERNAL_SERVER_ERROR,
             Error::NarSizeNotMatch(_, _) => StatusCode::INTERNAL_SERVER_ERROR,
+            Error::UploadedBlobNotMatch(_, _, _, _) => StatusCode::INTERNAL_SERVER_ERROR,
             Error::RetryAllFails(_) => StatusCode::INTERNAL_SERVER_ERROR,
             Error::PushFailed => StatusCode::INTERNAL_SERVER_ERROR,
             Error::Nar(_) => StatusCode::INTERNAL_SERVER_ERROR,

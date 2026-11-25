@@ -9,7 +9,6 @@ use std::{
 use nix_base32::to_nix_base32;
 use once_cell::sync::Lazy;
 use regex::Regex;
-use sha2::{Digest, Sha256};
 
 use crate::{error::Error, options::PushOptions};
 
@@ -23,9 +22,9 @@ pub struct NarInfo {
     pub url: String,
     pub compression: String,
     pub file_hash: NixHash,
-    pub file_size: usize,
+    pub file_size: u64,
     pub nar_hash: NixHash,
-    pub nar_size: usize,
+    pub nar_size: u64,
     pub references: Vec<String>,
     pub deriver: Option<String>,
     pub sigs: NixSignatureList,
@@ -202,15 +201,11 @@ pub fn query_path_info(db: &rusqlite::Connection, id: i64) -> Result<PathInfo, E
 }
 
 impl NixHash {
-    pub fn hash_data(data: &[u8]) -> NixHash {
-        let sha256 = {
-            let mut hasher = Sha256::new();
-            hasher.update(data);
-            hasher.finalize()
-        };
+    /// Wraps a raw SHA-256 hash.
+    pub fn from_sha256(sha256: &[u8]) -> NixHash {
         NixHash {
             algorithm: "sha256".to_string(),
-            base32: to_nix_base32(&sha256[..]),
+            base32: to_nix_base32(sha256),
         }
     }
 }
@@ -243,7 +238,7 @@ pub fn nar_info_fingerprint(
     store_dir: &str,
     store_path: &str,
     nar_hash: &NixHash,
-    nar_size: usize,
+    nar_size: u64,
     references: &[String],
 ) -> String {
     let fingerprint = format!(
