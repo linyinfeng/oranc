@@ -360,11 +360,13 @@ pub async fn push_blob_stream(
     repository: &str,
     data: impl Stream<Item = io::Result<Bytes>> + Send + 'static,
 ) -> Result<PushBlobStreamChunkedResponse, Error> {
-    // blob uploads only depend on the registry and the repository of a reference
+    // OCI blob uploads are repository-scoped (`/v2/<repo>/blobs/uploads/`) and never
+    // use the tag, and the real NAR tag is not known until streaming finishes hashing,
+    // but `oci_client::Reference` cannot be constructed without a tag or digest.
     let reference = Reference::with_tag(
         registry.to_owned(),
         repository.to_owned(),
-        "latest".to_owned(),
+        "placeholder".to_owned(),
     );
     let client = &ctx.client;
     client
