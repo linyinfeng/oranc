@@ -18,6 +18,7 @@ static NIX_DB_FILE: Lazy<String> = Lazy::new(|| format!("{}/db.sqlite", NIX_DB_D
 const NAR_CONTENT_TYPE: &str = "application/x-nix-nar";
 const NARINFO_CONTENT_TYPE: &str = "text/x-nix-narinfo";
 
+use crate::hashing::HashingWriter;
 use crate::nix::sign::{NixKeyPair, NixSignatureList};
 use crate::nix::{NarInfo, NixHash};
 use crate::registry::{OciBlob, OciItem, OciLocation, RegistryOptions};
@@ -131,11 +132,11 @@ async fn push_one(
             log::info!("[{task_header}] pushing  '{}'...", store_path);
 
             let nar_info_filename = format!("{store_path_hash}.narinfo");
-            let mut nar_data = vec![];
+            let mut nar_writer = HashingWriter::new(Vec::new());
             let mut nar_encoder = nix_nar::Encoder::new(&store_path)?;
-            io::copy(&mut nar_encoder, &mut nar_data)?;
-            let nar_size = nar_data.len() as u64;
-            let nar_hash = NixHash::hash_data(&nar_data[..]);
+            io::copy(&mut nar_encoder, &mut nar_writer)?;
+            let (nar_data, nar_size, nar_sha256) = nar_writer.finish();
+            let nar_hash = NixHash::from_sha256(&nar_sha256);
             let mut nar_file_data = vec![];
             zstd::stream::copy_encode(&nar_data[..], &mut nar_file_data, options.zstd_level)?;
             drop(nar_data); // save some memory

@@ -1,5 +1,6 @@
 pub mod convert;
 pub mod error;
+pub mod hashing;
 pub mod key;
 pub mod nix;
 pub mod options;
