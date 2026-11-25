@@ -83,6 +83,7 @@ There are two different ways to push cache to OCI registry using oranc.
    Note that:
    1. Only unsigned paths will be pushed, if you manually signed store paths, use the argument `--already-signed` to push them.
    2. Currently, `oranc` will not sign local paths, run `... | xargs nix store sign --recursive --key-file {YOUR_KEY_FILE}` to sign paths locally.
+   3. NAR archives are encoded, compressed and uploaded as a stream, without temporary files. Memory used to buffer an archive is bounded (a few 4 MiB chunks per parallel push) regardless of its size. The OCI registry must support chunked blob uploads, and a failed upload is retried by encoding the archive again.
 
    Run `oranc push --help` for more options.
 
