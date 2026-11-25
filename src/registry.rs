@@ -252,6 +252,8 @@ pub async fn put(
 }
 
 /// Runs `f` until it succeeds, at most `max_retry` times.
+///
+/// Only registry errors are retried, any other error is returned at once.
 async fn retry<T, F, Fut>(ctx: &RegistryContext, description: &str, mut f: F) -> Result<T, Error>
 where
     F: FnMut() -> Fut,
@@ -266,10 +268,11 @@ where
         log::debug!("{description}, attempt {attempt}/{max_retry}");
         match f().await {
             Ok(r) => return Ok(r),
-            Err(e) => {
+            Err(e @ Error::OciDistribution(_)) => {
                 log::warn!("{description}, attempt {attempt}/{max_retry} failed: {}", e);
                 errors.push(e);
             }
+            Err(e) => return Err(e),
         }
     }
     Err(Error::RetryAllFails(errors))
