@@ -256,21 +256,42 @@ async fn push_one(
 /// Encodes the NAR of the store path described by `path_info`, compresses
 /// it and pushes it, returning its hashes and sizes.
 ///
-/// The NAR is encoded again on every attempt instead of being kept for retries.
+/// The NAR is encoded again on every blob upload attempt instead of being kept
+/// for retries.
 async fn push_nar(
     ctx: &RegistryContext,
     options: &PushOptions,
     path_info: &PathInfo,
 ) -> Result<EncodedNar, Error> {
-    let description = format!("push NAR of '{}'", path_info.path);
+    let description = format!("push NAR blob of '{}'", path_info.path);
+    let encoded =
+        registry::retry(ctx, &description, || push_nar_blob(ctx, options, path_info)).await?;
+
+    if ctx.options.dry_run {
+        return Ok(encoded);
+    }
+
+    let digest = registry::sha256_oci_digest(&encoded.file_sha256);
+    let size = encoded.file_size;
+    let nar_hash = NixHash::from_sha256(&encoded.nar_sha256);
+    let location = oci_location(options, nar_file_url(&nar_hash));
+    let description = format!("push NAR manifest of '{}'", path_info.path);
     registry::retry(ctx, &description, || {
-        push_nar_attempt(ctx, options, path_info)
+        registry::push_manifest(
+            ctx,
+            &location,
+            Some(NAR_CONTENT_TYPE.to_owned()),
+            &digest,
+            size,
+        )
     })
-    .await
+    .await?;
+
+    Ok(encoded)
 }
 
-/// Makes one attempt of [`push_nar`].
-async fn push_nar_attempt(
+/// Makes one attempt of uploading the encoded NAR blob for [`push_nar`].
+async fn push_nar_blob(
     ctx: &RegistryContext,
     options: &PushOptions,
     path_info: &PathInfo,
@@ -299,24 +320,18 @@ async fn push_nar_attempt(
     let (encoded, uploaded) = tokio::join!(encoding, uploading);
     let (encoded, uploaded) = combine_stream_results(encoded?, uploaded)?;
 
-    let Some(uploaded) = uploaded else {
-        // dry run
-        return Ok(encoded);
-    };
-    let (digest, size) = (&uploaded.blob_digest, uploaded.size);
-    let expected_digest = registry::sha256_oci_digest(&encoded.file_sha256);
-    if *digest != expected_digest || size != encoded.file_size {
-        return Err(Error::UploadedBlobNotMatch(
-            expected_digest,
-            encoded.file_size,
-            digest.clone(),
-            size,
-        ));
+    if let Some(uploaded) = uploaded {
+        let (digest, size) = (&uploaded.blob_digest, uploaded.size);
+        let expected_digest = registry::sha256_oci_digest(&encoded.file_sha256);
+        if *digest != expected_digest || size != encoded.file_size {
+            return Err(Error::UploadedBlobNotMatch(
+                expected_digest,
+                encoded.file_size,
+                digest.clone(),
+                size,
+            ));
+        }
     }
-    let nar_hash = NixHash::from_sha256(&encoded.nar_sha256);
-    let location = oci_location(options, nar_file_url(&nar_hash));
-    let content_type = Some(NAR_CONTENT_TYPE.to_owned());
-    registry::push_manifest(ctx, &location, content_type, digest, size).await?;
     Ok(encoded)
 }
 
