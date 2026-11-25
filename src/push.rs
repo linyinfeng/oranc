@@ -20,7 +20,7 @@ const NARINFO_CONTENT_TYPE: &str = "text/x-nix-narinfo";
 
 use crate::hashing::HashingWriter;
 use crate::nix::sign::{NixKeyPair, NixSignatureList};
-use crate::nix::{NarInfo, NixHash};
+use crate::nix::{NarInfo, NixHash, PathInfo};
 use crate::registry::{OciBlob, OciItem, OciLocation, RegistryOptions};
 use crate::{
     error::Error,
@@ -146,6 +146,50 @@ fn encode_nar<W: Write>(
     Ok((sink, encoded))
 }
 
+/// Builds the narinfo of the store path described by `path_info`, whose
+/// NAR is `encoded`, and signs it with `key_pair`.
+fn build_nar_info(
+    options: &PushOptions,
+    key_pair: &NixKeyPair,
+    path_info: PathInfo,
+    encoded: &EncodedNar,
+) -> Result<NarInfo, Error> {
+    let nar_hash = NixHash::from_sha256(&encoded.nar_sha256);
+    let references: Vec<String> = path_info
+        .reference_store_paths
+        .iter()
+        .map(|p| nix::strip_store_dir(options, p))
+        .collect::<Result<_, _>>()?;
+    let deriver: Option<String> = path_info
+        .deriver_store_paths
+        .map_or(Ok::<_, Error>(None), |p| {
+            Ok(Some(nix::strip_store_dir(options, &p)?))
+        })?;
+    let fingerprint = nix::nar_info_fingerprint(
+        &options.store_dir,
+        &path_info.path,
+        &nar_hash,
+        encoded.nar_size,
+        &references,
+    );
+    let sign = key_pair.sign(fingerprint.as_bytes())?;
+    let mut sig_list = NixSignatureList::from_optional_str(&path_info.sigs)?;
+    sig_list.merge(key_pair, fingerprint.as_bytes(), sign)?;
+    Ok(NarInfo {
+        store_path: path_info.path,
+        url: nar_file_url(&nar_hash),
+        compression: "zstd".to_owned(),
+        file_hash: NixHash::from_sha256(&encoded.file_sha256),
+        file_size: encoded.file_size,
+        nar_hash,
+        nar_size: encoded.nar_size,
+        references,
+        deriver,
+        sigs: sig_list,
+        ca: path_info.ca,
+    })
+}
+
 async fn push_one(
     options: &PushOptions,
     auth: &RegistryAuth,
@@ -190,45 +234,8 @@ async fn push_one(
                 options.zstd_level,
                 Vec::new(),
             )?;
-            let nar_hash = NixHash::from_sha256(&encoded.nar_sha256);
-            let nar_size = encoded.nar_size;
-            let nar_file_hash = NixHash::from_sha256(&encoded.file_sha256);
-            let nar_file_size = encoded.file_size;
-
-            let nar_file_url = nar_file_url(&nar_hash);
-            let references: Vec<String> = path_info
-                .reference_store_paths
-                .iter()
-                .map(|p| nix::strip_store_dir(&options, p))
-                .collect::<Result<_, _>>()?;
-            let deriver: Option<String> = path_info
-                .deriver_store_paths
-                .map_or(Ok::<_, Error>(None), |p| {
-                    Ok(Some(nix::strip_store_dir(&options, &p)?))
-                })?;
-            let nar_info_fingerprint = nix::nar_info_fingerprint(
-                &options.store_dir,
-                &store_path,
-                &nar_hash,
-                nar_size,
-                &references,
-            );
-            let nar_info_sign = key_pair.sign(nar_info_fingerprint.as_bytes())?;
-            let mut sig_list = NixSignatureList::from_optional_str(&path_info.sigs)?;
-            sig_list.merge(&key_pair, nar_info_fingerprint.as_bytes(), nar_info_sign)?;
-            let nar_info = NarInfo {
-                store_path,
-                url: nar_file_url.clone(),
-                compression: "zstd".to_owned(),
-                file_hash: nar_file_hash,
-                file_size: nar_file_size,
-                nar_hash,
-                nar_size,
-                references,
-                deriver,
-                sigs: sig_list,
-                ca: path_info.ca,
-            };
+            let nar_info = build_nar_info(&options, &key_pair, path_info, &encoded)?;
+            let nar_file_url = nar_info.url.clone();
             let nar_info_content = nar_info.to_string();
             log::debug!("[{task_header}] narinfo:\n{nar_info_content}");
             let nar_info_data = nar_info_content.into_bytes();
