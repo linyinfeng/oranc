@@ -10,15 +10,18 @@ use crate::{
 };
 use axum::RequestPartsExt;
 use axum::extract::{FromRef, FromRequestParts, Path, Query, State};
+use bytes::Bytes;
+use data_encoding::HEXLOWER;
 use maplit::btreemap;
 use oci_client::{
     Client, Reference,
-    client::{ClientConfig, ClientProtocol, Config, ImageLayer},
+    client::{ClientConfig, ClientProtocol, Config},
     config::{Architecture, ConfigFile, Os, Rootfs},
     errors::{OciDistributionError, OciErrorCode},
-    manifest::OciImageManifest,
+    manifest::{OciDescriptor, OciImageManifest},
     secrets::RegistryAuth,
 };
+use sha2::{Digest, Sha256};
 
 pub const LAYER_MEDIA_TYPE: &str = "application/octet-stream";
 pub const CONTENT_TYPE_ANNOTATION: &str = "com.linyinfeng.oranc.content.type";
@@ -231,13 +234,15 @@ pub async fn put(
     let layer_annotations = btreemap! {
         CONTENT_TYPE_ANNOTATION.to_string() => content_type,
     };
-    let layer = ImageLayer::new(
-        oci_item.data,
-        LAYER_MEDIA_TYPE.to_string(),
-        Some(layer_annotations),
-    );
-    let layer_digest = layer.sha256_digest();
-    let layers = vec![layer];
+    let layer_data = Bytes::from(oci_item.data);
+    let layer_digest = sha256_oci_digest(&Sha256::digest(&layer_data));
+    let layer_descriptor = OciDescriptor {
+        media_type: LAYER_MEDIA_TYPE.to_string(),
+        digest: layer_digest.clone(),
+        size: layer_data.len() as i64,
+        annotations: Some(layer_annotations),
+        ..Default::default()
+    };
 
     let rootfs = Rootfs {
         r#type: "layers".to_string(),
@@ -260,12 +265,24 @@ pub async fn put(
     let config = Config::oci_v1_from_config_file(config_file, config_annotations)
         .map_err(Error::OciDistribution)?;
 
+    let config_descriptor = OciDescriptor {
+        media_type: config.media_type.clone(),
+        digest: config.sha256_digest(),
+        size: config.data.len() as i64,
+        ..Default::default()
+    };
+
     let key = &location.key;
     let image_annotations = btreemap! {
         "com.linyinfeng.oranc.key".to_string() => key.to_owned(),
         "org.opencontainers.image.description".to_string() => key.to_owned(),
     };
-    let image_manifest = OciImageManifest::build(&layers, &config, Some(image_annotations));
+    let image_manifest = OciImageManifest {
+        config: config_descriptor,
+        layers: vec![layer_descriptor],
+        annotations: Some(image_annotations),
+        ..Default::default()
+    };
 
     let max_retry = ctx.options.max_retry;
     if max_retry < 1 {
@@ -282,7 +299,7 @@ pub async fn put(
         match push_image(
             ctx,
             &reference,
-            &layers[0],
+            &layer_data,
             &layer_digest,
             &config,
             &image_manifest,
@@ -309,7 +326,7 @@ pub async fn put(
 async fn push_image(
     ctx: &RegistryContext,
     reference: &Reference,
-    layer: &ImageLayer,
+    layer_data: &Bytes,
     layer_digest: &str,
     config: &Config,
     manifest: &OciImageManifest,
@@ -319,7 +336,7 @@ async fn push_image(
         .store_auth_if_needed(reference.resolve_registry(), &ctx.auth)
         .await;
     client
-        .push_blob(reference, layer.data.clone(), layer_digest)
+        .push_blob(reference, layer_data.clone(), layer_digest)
         .await?;
     client
         .push_blob(reference, config.data.clone(), &manifest.config.digest)
@@ -328,6 +345,11 @@ async fn push_image(
         .push_manifest(reference, &manifest.clone().into())
         .await?;
     Ok(())
+}
+
+/// Formats a raw SHA-256 hash as an OCI content digest.
+fn sha256_oci_digest(sha256: &[u8]) -> String {
+    format!("sha256:{}", HEXLOWER.encode(sha256))
 }
 
 impl RegistryOptions {
