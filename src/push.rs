@@ -214,14 +214,20 @@ async fn push_one(
 
     not_failed()?;
 
+    let path_info = tokio::task::spawn_blocking({
+        let options = options.clone();
+        move || {
+            // this function runs in parallel and use its own connections
+            let conn = nix_db_connection(&options)?;
+            nix::query_path_info(&conn, id)
+        }
+    })
+    .await??;
+
     let to_put = tokio::task::spawn_blocking({
         let options = options.clone();
         let key_pair = key_pair.clone();
         move || -> Result<_, Error> {
-            // this function runs in parallel and use its own connections
-            let conn = nix_db_connection(&options)?;
-
-            let path_info = nix::query_path_info(&conn, id)?;
             let store_path = path_info.path.clone();
             let store_path_hash = nix::store_path_to_hash(&options, &store_path)?;
 
