@@ -9,7 +9,6 @@ use std::{
 use nix_base32::to_nix_base32;
 use once_cell::sync::Lazy;
 use regex::Regex;
-use sha2::{Digest, Sha256};
 
 use crate::{error::Error, options::PushOptions};
 
@@ -202,10 +201,6 @@ pub fn query_path_info(db: &rusqlite::Connection, id: i64) -> Result<PathInfo, E
 }
 
 impl NixHash {
-    pub fn hash_data(data: &[u8]) -> NixHash {
-        Self::from_sha256(&Sha256::digest(data))
-    }
-
     /// Wraps a raw SHA-256 hash.
     pub fn from_sha256(sha256: &[u8]) -> NixHash {
         NixHash {
