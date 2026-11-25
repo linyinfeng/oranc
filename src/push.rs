@@ -254,7 +254,22 @@ async fn push_one(
 
 /// Encodes the NAR of the store path described by `path_info`, compresses
 /// it and pushes it, returning its hashes and sizes.
+///
+/// The NAR is encoded again on every attempt instead of being kept for retries.
 async fn push_nar(
+    ctx: &RegistryContext,
+    options: &PushOptions,
+    path_info: &PathInfo,
+) -> Result<EncodedNar, Error> {
+    let description = format!("push NAR of '{}'", path_info.path);
+    registry::retry(ctx, &description, || {
+        push_nar_attempt(ctx, options, path_info)
+    })
+    .await
+}
+
+/// Makes one attempt of [`push_nar`].
+async fn push_nar_attempt(
     ctx: &RegistryContext,
     options: &PushOptions,
     path_info: &PathInfo,
@@ -275,21 +290,17 @@ async fn push_nar(
     let encoded = encoded??;
     let nar_file_data = Bytes::from(chunks?.concat());
 
+    if ctx.options.dry_run {
+        log::debug!("dry run, skipped");
+        return Ok(encoded);
+    }
+    let data = stream::once(future::ok(nar_file_data));
+    registry::push_blob_stream(ctx, &options.registry, &options.repository, data).await?;
     let nar_hash = NixHash::from_sha256(&encoded.nar_sha256);
     let location = oci_location(options, nar_file_url(&nar_hash));
     let digest = registry::sha256_oci_digest(&encoded.file_sha256);
-    let description = format!("push NAR of '{}'", path_info.path);
-    registry::retry(ctx, &description, || async {
-        if ctx.options.dry_run {
-            log::debug!("dry run, skipped");
-            return Ok(());
-        }
-        let data = stream::once(future::ok(nar_file_data.clone()));
-        registry::push_blob_stream(ctx, &options.registry, &options.repository, data).await?;
-        let content_type = Some(NAR_CONTENT_TYPE.to_owned());
-        registry::push_manifest(ctx, &location, content_type, &digest, encoded.file_size).await
-    })
-    .await?;
+    let content_type = Some(NAR_CONTENT_TYPE.to_owned());
+    registry::push_manifest(ctx, &location, content_type, &digest, encoded.file_size).await?;
     Ok(encoded)
 }
 
