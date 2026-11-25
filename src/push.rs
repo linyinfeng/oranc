@@ -134,13 +134,15 @@ fn encode_nar<W: Write>(
     zstd_level: i32,
     sink: W,
 ) -> Result<(W, EncodedNar), Error> {
+    let expected_size = u64::try_from(expected_nar_size).map_err(Error::InvalidNarSize)?;
     let file_writer = HashingWriter::new(sink);
-    let compressor = zstd::Encoder::new(file_writer, zstd_level)?;
+    let mut compressor = zstd::Encoder::new(file_writer, zstd_level)?;
+    compressor.set_pledged_src_size(Some(expected_size))?;
     let mut nar_writer = HashingWriter::new(compressor);
     let mut nar_encoder = nix_nar::Encoder::new(store_path)?;
     io::copy(&mut nar_encoder, &mut nar_writer)?;
     let (compressor, nar_size, nar_sha256) = nar_writer.finish();
-    if u64::try_from(expected_nar_size).map_err(Error::InvalidNarSize)? != nar_size {
+    if expected_size != nar_size {
         return Err(Error::NarSizeNotMatch(expected_nar_size, nar_size));
     }
     let (sink, file_size, file_sha256) = compressor.finish()?.finish();
