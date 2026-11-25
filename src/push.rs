@@ -1,4 +1,4 @@
-use std::io::{self, Write};
+use std::io::{self, Read, Write};
 
 use std::sync::atomic::AtomicUsize;
 use std::{
@@ -140,10 +140,17 @@ fn encode_nar<W: Write>(
     compressor.set_pledged_src_size(Some(expected_size))?;
     let mut nar_writer = HashingWriter::new(compressor);
     let mut nar_encoder = nix_nar::Encoder::new(store_path)?;
-    io::copy(&mut nar_encoder, &mut nar_writer)?;
+    // Bound what goes into zstd so set_pledged_src_size doesn't fail before we
+    // can report NarSizeNotMatch with the full actual size.
+    io::copy(
+        &mut nar_encoder.by_ref().take(expected_size),
+        &mut nar_writer,
+    )?;
+    let extra_size = io::copy(&mut nar_encoder, &mut io::sink())?;
     let (compressor, nar_size, nar_sha256) = nar_writer.finish();
-    if expected_size != nar_size {
-        return Err(Error::NarSizeNotMatch(expected_nar_size, nar_size));
+    let actual_size = nar_size.saturating_add(extra_size);
+    if expected_size != actual_size {
+        return Err(Error::NarSizeNotMatch(expected_nar_size, actual_size));
     }
     let (sink, file_size, file_sha256) = compressor.finish()?.finish();
     let encoded = EncodedNar {
