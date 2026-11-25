@@ -103,6 +103,12 @@ fn oci_location(options: &PushOptions, key: String) -> OciLocation {
     }
 }
 
+/// Returns the URL, relative to the cache, of the compressed NAR whose
+/// uncompressed content has hash `nar_hash`.
+fn nar_file_url(nar_hash: &NixHash) -> String {
+    format!("nar/{}.nar.zst", nar_hash.base32)
+}
+
 /// SHA-256 hashes and sizes of a NAR and of its compressed form.
 struct EncodedNar {
     nar_sha256: [u8; 32],
@@ -189,8 +195,7 @@ async fn push_one(
             let nar_file_hash = NixHash::from_sha256(&encoded.file_sha256);
             let nar_file_size = encoded.file_size;
 
-            let nar_filename = format!("{}.nar.zst", nar_hash.base32);
-            let nar_file_url = format!("nar/{nar_filename}");
+            let nar_file_url = nar_file_url(&nar_hash);
             let references: Vec<String> = path_info
                 .reference_store_paths
                 .iter()
