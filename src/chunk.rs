@@ -65,6 +65,12 @@ enum Message {
 #[error("chunk stream dropped")]
 pub struct StreamDropped;
 
+/// Returns whether `error` comes from writing to a [`ChunkWriter`] whose
+/// receiving stream is dropped.
+pub fn is_stream_dropped(error: &io::Error) -> bool {
+    error.get_ref().is_some_and(|e| e.is::<StreamDropped>())
+}
+
 impl ChunkWriter {
     /// Sends the remaining buffered data and ends the stream.
     pub fn finish(mut self) -> io::Result<()> {

@@ -287,8 +287,8 @@ async fn push_nar_attempt(
     });
     // TODO remove this collection once chunks are streamed to the registry
     let (encoded, chunks) = tokio::join!(encoding, chunks.try_collect::<Vec<_>>());
-    let encoded = encoded??;
-    let nar_file_data = Bytes::from(chunks?.concat());
+    let (encoded, chunks) = join_encoding(encoded?, chunks.map_err(Error::from))?;
+    let nar_file_data = Bytes::from(chunks.concat());
 
     if ctx.options.dry_run {
         log::debug!("dry run, skipped");
@@ -302,6 +302,23 @@ async fn push_nar_attempt(
     let content_type = Some(NAR_CONTENT_TYPE.to_owned());
     registry::push_manifest(ctx, &location, content_type, &digest, encoded.file_size).await?;
     Ok(encoded)
+}
+
+/// Joins the results of encoding a NAR into a [`chunk::channel`] and of
+/// consuming its chunks concurrently, returning the error that stopped them
+/// if any.
+fn join_encoding<T>(
+    encoded: Result<EncodedNar, Error>,
+    consumed: Result<T, Error>,
+) -> Result<(EncodedNar, T), Error> {
+    match (encoded, consumed) {
+        (Ok(encoded), Ok(consumed)) => Ok((encoded, consumed)),
+        // encoding stopped because consuming failed and dropped the chunks
+        (Err(Error::Io(e)), Err(consumer_error)) if chunk::is_stream_dropped(&e) => {
+            Err(consumer_error)
+        }
+        (Err(e), _) | (_, Err(e)) => Err(e),
+    }
 }
 
 async fn handle_push_result(r: Result<(), Error>, failed: &AtomicBool) {
