@@ -321,6 +321,13 @@ async fn push_nar_blob(
             chunks.try_for_each(|_| future::ok(())).await?;
             return Ok(None);
         }
+        let mut chunks = Box::pin(chunks.peekable());
+        // Skip opening an upload session if encoding failed before sending any chunk.
+        if chunks.as_mut().peek().await.is_some_and(Result::is_err)
+            && let Some(Err(err)) = chunks.next().await
+        {
+            return Err(err.into());
+        }
         let blob = registry::push_blob_stream(ctx, &options.registry, &options.repository, chunks);
         Ok(Some(blob.await?))
     };

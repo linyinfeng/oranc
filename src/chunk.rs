@@ -89,12 +89,19 @@ impl ChunkWriter {
     fn send(&self, message: Message) -> io::Result<()> {
         self.sender
             .blocking_send(message)
-            .map_err(|_| io::Error::new(io::ErrorKind::BrokenPipe, StreamDropped))
+            .map_err(|_| stream_dropped())
     }
+}
+
+fn stream_dropped() -> io::Error {
+    io::Error::new(io::ErrorKind::BrokenPipe, StreamDropped)
 }
 
 impl Write for ChunkWriter {
     fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+        if self.sender.is_closed() {
+            return Err(stream_dropped());
+        }
         if self.buffer.len() == self.chunk_size {
             self.send_buffer()?;
         }
