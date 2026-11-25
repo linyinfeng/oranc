@@ -243,7 +243,7 @@ pub async fn put(
         r#type: "layers".to_string(),
         diff_ids: vec![
             // just use layer digest
-            layer_digest,
+            layer_digest.clone(),
         ],
     };
     let config_file = ConfigFile {
@@ -279,18 +279,17 @@ pub async fn put(
             log::debug!("dry run, skipped");
             return Ok(());
         }
-        match ctx
-            .client
-            .push(
-                &reference,
-                &layers,
-                config.clone(),
-                &ctx.auth,
-                Some(image_manifest.clone()),
-            )
-            .await
+        match push_image(
+            ctx,
+            &reference,
+            &layers[0],
+            &layer_digest,
+            &config,
+            &image_manifest,
+        )
+        .await
         {
-            Ok(_push_response) => return Ok(()),
+            Ok(()) => return Ok(()),
             Err(oci_error) => {
                 let e = oci_error.into();
                 log::warn!(
@@ -302,6 +301,33 @@ pub async fn put(
         }
     }
     Err(Error::RetryAllFails(errors))
+}
+
+/// Pushes the layer, the config and the manifest of an image in order.
+///
+/// Equivalent to [`Client::push`] for a single layer image.
+async fn push_image(
+    ctx: &RegistryContext,
+    reference: &Reference,
+    layer: &ImageLayer,
+    layer_digest: &str,
+    config: &Config,
+    manifest: &OciImageManifest,
+) -> Result<(), OciDistributionError> {
+    let client = &ctx.client;
+    client
+        .store_auth_if_needed(reference.resolve_registry(), &ctx.auth)
+        .await;
+    client
+        .push_blob(reference, layer.data.clone(), layer_digest)
+        .await?;
+    client
+        .push_blob(reference, config.data.clone(), &manifest.config.digest)
+        .await?;
+    client
+        .push_manifest(reference, &manifest.clone().into())
+        .await?;
+    Ok(())
 }
 
 impl RegistryOptions {
