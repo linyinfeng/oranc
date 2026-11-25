@@ -94,6 +94,15 @@ Priority: {priority}
     )
 }
 
+/// Returns the location of `key` in the repository to push to.
+fn oci_location(options: &PushOptions, key: String) -> OciLocation {
+    OciLocation {
+        registry: options.registry.clone(),
+        repository: options.repository.clone(),
+        key,
+    }
+}
+
 async fn push_one(
     options: &PushOptions,
     auth: &RegistryAuth,
@@ -192,22 +201,14 @@ async fn push_one(
             Ok(vec![
                 // push nar first
                 (
-                    OciLocation {
-                        registry: options.registry.clone(),
-                        repository: options.repository.clone(),
-                        key: nar_file_url,
-                    },
+                    oci_location(&options, nar_file_url),
                     OciItem {
                         content_type: Some(NAR_CONTENT_TYPE.to_owned()),
                         blob: OciBlob::from_bytes(nar_file_data),
                     },
                 ),
                 (
-                    OciLocation {
-                        registry: options.registry,
-                        repository: options.repository,
-                        key: nar_info_filename,
-                    },
+                    oci_location(&options, nar_info_filename),
                     OciItem {
                         content_type: Some(NARINFO_CONTENT_TYPE.to_owned()),
                         blob: OciBlob::from_bytes(nar_info_data),
@@ -326,11 +327,7 @@ pub async fn push_initialize_main(
     let key = "nix-cache-info".to_owned();
     let content_type = "text/x-nix-cache-info".to_owned();
     let ctx = RegistryOptions::from_push_options(&options).context(auth);
-    let location = OciLocation {
-        registry: options.registry,
-        repository: options.repository,
-        key,
-    };
+    let location = oci_location(&options, key);
     let item = OciItem {
         content_type: Some(content_type),
         blob: OciBlob::from_bytes(nix_cache_info.into_bytes()),
