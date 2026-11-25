@@ -1,4 +1,4 @@
-use std::io::{self};
+use std::io::{self, Write};
 
 use std::sync::atomic::AtomicUsize;
 use std::{
@@ -103,6 +103,37 @@ fn oci_location(options: &PushOptions, key: String) -> OciLocation {
     }
 }
 
+/// SHA-256 hashes and sizes of a NAR and of its compressed form.
+struct EncodedNar {
+    nar_sha256: [u8; 32],
+    nar_size: u64,
+    file_sha256: [u8; 32],
+    file_size: u64,
+}
+
+/// Encodes `store_path` as a NAR and writes it compressed with zstd into
+/// `sink`, returning `sink` back.
+fn encode_nar<W: Write>(
+    store_path: &str,
+    zstd_level: i32,
+    sink: W,
+) -> Result<(W, EncodedNar), Error> {
+    let file_writer = HashingWriter::new(sink);
+    let compressor = zstd::Encoder::new(file_writer, zstd_level)?;
+    let mut nar_writer = HashingWriter::new(compressor);
+    let mut nar_encoder = nix_nar::Encoder::new(store_path)?;
+    io::copy(&mut nar_encoder, &mut nar_writer)?;
+    let (compressor, nar_size, nar_sha256) = nar_writer.finish();
+    let (sink, file_size, file_sha256) = compressor.finish()?.finish();
+    let encoded = EncodedNar {
+        nar_sha256,
+        nar_size,
+        file_sha256,
+        file_size,
+    };
+    Ok((sink, encoded))
+}
+
 async fn push_one(
     options: &PushOptions,
     auth: &RegistryAuth,
@@ -141,15 +172,11 @@ async fn push_one(
             log::info!("[{task_header}] pushing  '{}'...", store_path);
 
             let nar_info_filename = format!("{store_path_hash}.narinfo");
-            let nar_file_writer = HashingWriter::new(Vec::new());
-            let nar_compressor = zstd::Encoder::new(nar_file_writer, options.zstd_level)?;
-            let mut nar_writer = HashingWriter::new(nar_compressor);
-            let mut nar_encoder = nix_nar::Encoder::new(&store_path)?;
-            io::copy(&mut nar_encoder, &mut nar_writer)?;
-            let (nar_compressor, nar_size, nar_sha256) = nar_writer.finish();
-            let nar_hash = NixHash::from_sha256(&nar_sha256);
-            let (nar_file_data, nar_file_size, nar_file_sha256) = nar_compressor.finish()?.finish();
-            let nar_file_hash = NixHash::from_sha256(&nar_file_sha256);
+            let (nar_file_data, encoded) = encode_nar(&store_path, options.zstd_level, Vec::new())?;
+            let nar_hash = NixHash::from_sha256(&encoded.nar_sha256);
+            let nar_size = encoded.nar_size;
+            let nar_file_hash = NixHash::from_sha256(&encoded.file_sha256);
+            let nar_file_size = encoded.file_size;
 
             let expected_nar_size: u64 = path_info
                 .nar_size
