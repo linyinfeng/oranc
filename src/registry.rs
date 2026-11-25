@@ -239,26 +239,35 @@ pub async fn put(
     let (config, image_manifest) =
         build_image(location, oci_item.content_type, &blob.digest, blob.size)?;
 
-    let max_retry = ctx.options.max_retry;
-    if max_retry < 1 {
-        return Err(Error::InvalidMaxRetry(max_retry));
-    }
     let (reference, _fallbacks) = location.reference(&ctx.options.encoding_options);
-    let mut errors = vec![];
-    for attempt in 1..=max_retry {
-        log::debug!("push {reference:?}, attempt {attempt}/{max_retry}");
+    retry(ctx, &format!("push {reference:?}"), || async {
         if ctx.options.dry_run {
             log::debug!("dry run, skipped");
             return Ok(());
         }
-        match push_image(ctx, &reference, &blob, &config, &image_manifest).await {
-            Ok(()) => return Ok(()),
-            Err(oci_error) => {
-                let e = oci_error.into();
-                log::warn!(
-                    "push {reference:?}, attempt {attempt}/{max_retry} failed: {}",
-                    e
-                );
+        push_image(ctx, &reference, &blob, &config, &image_manifest).await?;
+        Ok(())
+    })
+    .await
+}
+
+/// Runs `f` until it succeeds, at most `max_retry` times.
+async fn retry<T, F, Fut>(ctx: &RegistryContext, description: &str, mut f: F) -> Result<T, Error>
+where
+    F: FnMut() -> Fut,
+    Fut: Future<Output = Result<T, Error>>,
+{
+    let max_retry = ctx.options.max_retry;
+    if max_retry < 1 {
+        return Err(Error::InvalidMaxRetry(max_retry));
+    }
+    let mut errors = vec![];
+    for attempt in 1..=max_retry {
+        log::debug!("{description}, attempt {attempt}/{max_retry}");
+        match f().await {
+            Ok(r) => return Ok(r),
+            Err(e) => {
+                log::warn!("{description}, attempt {attempt}/{max_retry} failed: {}", e);
                 errors.push(e);
             }
         }
