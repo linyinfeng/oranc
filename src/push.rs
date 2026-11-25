@@ -132,14 +132,13 @@ async fn push_one(
             log::info!("[{task_header}] pushing  '{}'...", store_path);
 
             let nar_info_filename = format!("{store_path_hash}.narinfo");
-            let mut nar_writer = HashingWriter::new(Vec::new());
+            let nar_compressor = zstd::Encoder::new(Vec::new(), options.zstd_level)?;
+            let mut nar_writer = HashingWriter::new(nar_compressor);
             let mut nar_encoder = nix_nar::Encoder::new(&store_path)?;
             io::copy(&mut nar_encoder, &mut nar_writer)?;
-            let (nar_data, nar_size, nar_sha256) = nar_writer.finish();
+            let (nar_compressor, nar_size, nar_sha256) = nar_writer.finish();
             let nar_hash = NixHash::from_sha256(&nar_sha256);
-            let mut nar_file_data = vec![];
-            zstd::stream::copy_encode(&nar_data[..], &mut nar_file_data, options.zstd_level)?;
-            drop(nar_data); // save some memory
+            let nar_file_data = nar_compressor.finish()?;
             let nar_file_size = nar_file_data.len() as u64;
             let nar_file_hash = NixHash::hash_data(&nar_file_data[..]);
 
