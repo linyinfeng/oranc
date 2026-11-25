@@ -3,10 +3,10 @@ use std::sync::Arc;
 use crate::error::Error;
 use crate::registry;
 use crate::registry::LayerInfo;
-use crate::registry::OciItem;
 use crate::registry::OciLocation;
 use crate::registry::RegistryOptions;
 use crate::registry::get_layer_info;
+use crate::registry::{OciBlob, OciItem};
 use crate::server::auth::Auth;
 
 pub mod auth;
@@ -125,7 +125,7 @@ async fn put_key(
     let registry_ctx = RegistryOptions::from_server_options(&ctx.options).context(auth);
     let item = OciItem {
         content_type: content_type.map(|TypedHeader(typ)| typ.to_string()),
-        data: body.to_vec(),
+        blob: OciBlob::from_bytes(body),
     };
     registry::put(&registry_ctx, &location, item).await?;
     Response::builder()

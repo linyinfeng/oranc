@@ -50,7 +50,15 @@ pub struct OciLocation {
 #[derive(Debug, Clone)]
 pub struct OciItem {
     pub content_type: Option<String>,
-    pub data: Vec<u8>,
+    pub blob: OciBlob,
+}
+
+/// Content of an [`OciItem`], together with its OCI digest and size.
+#[derive(Debug, Clone)]
+pub struct OciBlob {
+    digest: String,
+    size: u64,
+    data: Bytes,
 }
 
 #[derive(Debug, Clone)]
@@ -234,12 +242,11 @@ pub async fn put(
     let layer_annotations = btreemap! {
         CONTENT_TYPE_ANNOTATION.to_string() => content_type,
     };
-    let layer_data = Bytes::from(oci_item.data);
-    let layer_digest = sha256_oci_digest(&Sha256::digest(&layer_data));
+    let blob = oci_item.blob;
     let layer_descriptor = OciDescriptor {
         media_type: LAYER_MEDIA_TYPE.to_string(),
-        digest: layer_digest.clone(),
-        size: layer_data.len() as i64,
+        digest: blob.digest.clone(),
+        size: i64::try_from(blob.size).map_err(|_| Error::InvalidBlobSize(blob.size))?,
         annotations: Some(layer_annotations),
         ..Default::default()
     };
@@ -248,7 +255,7 @@ pub async fn put(
         r#type: "layers".to_string(),
         diff_ids: vec![
             // just use layer digest
-            layer_digest.clone(),
+            blob.digest.clone(),
         ],
     };
     let config_file = ConfigFile {
@@ -296,16 +303,7 @@ pub async fn put(
             log::debug!("dry run, skipped");
             return Ok(());
         }
-        match push_image(
-            ctx,
-            &reference,
-            &layer_data,
-            &layer_digest,
-            &config,
-            &image_manifest,
-        )
-        .await
-        {
+        match push_image(ctx, &reference, &blob, &config, &image_manifest).await {
             Ok(()) => return Ok(()),
             Err(oci_error) => {
                 let e = oci_error.into();
@@ -326,8 +324,7 @@ pub async fn put(
 async fn push_image(
     ctx: &RegistryContext,
     reference: &Reference,
-    layer_data: &Bytes,
-    layer_digest: &str,
+    blob: &OciBlob,
     config: &Config,
     manifest: &OciImageManifest,
 ) -> Result<(), OciDistributionError> {
@@ -336,7 +333,7 @@ async fn push_image(
         .store_auth_if_needed(reference.resolve_registry(), &ctx.auth)
         .await;
     client
-        .push_blob(reference, layer_data.clone(), layer_digest)
+        .push_blob(reference, blob.data.clone(), &blob.digest)
         .await?;
     client
         .push_blob(reference, config.data.clone(), &manifest.config.digest)
@@ -345,6 +342,18 @@ async fn push_image(
         .push_manifest(reference, &manifest.clone().into())
         .await?;
     Ok(())
+}
+
+impl OciBlob {
+    /// Creates a blob from in-memory data, computing its digest.
+    pub fn from_bytes(data: impl Into<Bytes>) -> Self {
+        let data = data.into();
+        Self {
+            digest: sha256_oci_digest(&Sha256::digest(&data)),
+            size: data.len() as u64,
+            data,
+        }
+    }
 }
 
 /// Formats a raw SHA-256 hash as an OCI content digest.

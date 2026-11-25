@@ -20,7 +20,7 @@ const NARINFO_CONTENT_TYPE: &str = "text/x-nix-narinfo";
 
 use crate::nix::sign::{NixKeyPair, NixSignatureList};
 use crate::nix::{NarInfo, NixHash};
-use crate::registry::{OciItem, OciLocation, RegistryOptions};
+use crate::registry::{OciBlob, OciItem, OciLocation, RegistryOptions};
 use crate::{
     error::Error,
     nix,
@@ -199,7 +199,7 @@ async fn push_one(
                     },
                     OciItem {
                         content_type: Some(NAR_CONTENT_TYPE.to_owned()),
-                        data: nar_file_data,
+                        blob: OciBlob::from_bytes(nar_file_data),
                     },
                 ),
                 (
@@ -210,7 +210,7 @@ async fn push_one(
                     },
                     OciItem {
                         content_type: Some(NARINFO_CONTENT_TYPE.to_owned()),
-                        data: nar_info_data,
+                        blob: OciBlob::from_bytes(nar_info_data),
                     },
                 ),
             ])
@@ -333,7 +333,7 @@ pub async fn push_initialize_main(
     };
     let item = OciItem {
         content_type: Some(content_type),
-        data: nix_cache_info.into_bytes(),
+        blob: OciBlob::from_bytes(nix_cache_info.into_bytes()),
     };
     registry::put(&ctx, &location, item).await?;
     Ok(())

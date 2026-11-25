@@ -35,6 +35,8 @@ pub enum Error {
     InvalidNarSize(<i64 as TryInto<u64>>::Error),
     #[error("invalid image layer size: {0}")]
     InvalidLayerSize(i64),
+    #[error("invalid blob size: {0}")]
+    InvalidBlobSize(u64),
     #[error("nar size not match: expected = {0}, actual = {1}")]
     NarSizeNotMatch(i64, u64),
     #[error("retry all fails: {0:?}")]
@@ -131,6 +133,7 @@ impl Error {
             Error::Join(_) => StatusCode::INTERNAL_SERVER_ERROR,
             Error::InvalidNarSize(_) => StatusCode::INTERNAL_SERVER_ERROR,
             Error::InvalidLayerSize(_) => StatusCode::INTERNAL_SERVER_ERROR,
+            Error::InvalidBlobSize(_) => StatusCode::INTERNAL_SERVER_ERROR,
             Error::NarSizeNotMatch(_, _) => StatusCode::INTERNAL_SERVER_ERROR,
             Error::RetryAllFails(_) => StatusCode::INTERNAL_SERVER_ERROR,
             Error::PushFailed => StatusCode::INTERNAL_SERVER_ERROR,
