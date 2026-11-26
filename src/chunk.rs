@@ -1,10 +1,12 @@
-//! Bounded in-memory channel passing data written by blocking code to
-//! asynchronous code as a stream of chunks.
+//! Streaming chunk adapters: [`channel`] transfers data written by
+//! blocking code into an asynchronous chunk stream, and [`rechunk`]
+//! normalizes an existing byte stream into fixed-size chunks.
 
 use std::io::{self, Write};
+use std::pin::Pin;
 
 use bytes::{Bytes, BytesMut};
-use futures::{Stream, stream};
+use futures::{Stream, StreamExt, stream};
 use tokio::sync::mpsc;
 
 /// Creates a channel whose writer sends data in chunks of `chunk_size`
@@ -118,5 +120,65 @@ impl Write for ChunkWriter {
             return Err(stream_dropped());
         }
         self.send_buffer()
+    }
+}
+
+/// Repackages the byte stream `stream` into chunks of `chunk_size` bytes
+/// (plus a smaller final chunk if the total length is not a multiple of
+/// `chunk_size`), never emitting empty chunks.
+///
+/// Errors from `stream` are forwarded immediately and terminate the stream.
+pub fn rechunk<S, E>(
+    stream: S,
+    chunk_size: usize,
+) -> impl Stream<Item = Result<Bytes, E>> + Send + 'static
+where
+    S: Stream<Item = Result<Bytes, E>> + Send + 'static,
+    E: Send + 'static,
+{
+    assert!(chunk_size > 0, "chunk size must be positive");
+    let state = RechunkState {
+        stream: Box::pin(stream),
+        buffer: BytesMut::new(),
+        pending: Bytes::new(),
+    };
+    stream::unfold(Some(state), move |state| next_chunk(state, chunk_size))
+}
+
+struct RechunkState<S> {
+    stream: Pin<Box<S>>,
+    buffer: BytesMut,
+    pending: Bytes,
+}
+
+async fn next_chunk<S, E>(
+    state: Option<RechunkState<S>>,
+    chunk_size: usize,
+) -> Option<(Result<Bytes, E>, Option<RechunkState<S>>)>
+where
+    S: Stream<Item = Result<Bytes, E>>,
+{
+    let mut state = state?;
+    loop {
+        if !state.pending.is_empty() {
+            // Avoid copying when an incoming frame already fills a full chunk.
+            if state.buffer.is_empty() && state.pending.len() >= chunk_size {
+                let chunk = state.pending.split_to(chunk_size);
+                return Some((Ok(chunk), Some(state)));
+            }
+            let len = state.pending.len().min(chunk_size - state.buffer.len());
+            state.buffer.extend_from_slice(&state.pending.split_to(len));
+            if state.buffer.len() == chunk_size {
+                let chunk = std::mem::take(&mut state.buffer).freeze();
+                return Some((Ok(chunk), Some(state)));
+            }
+        }
+        match state.stream.as_mut().next().await {
+            Some(Ok(data)) => state.pending = data,
+            Some(Err(err)) => return Some((Err(err), None)),
+            None => {
+                return (!state.buffer.is_empty()).then(|| (Ok(state.buffer.freeze()), None));
+            }
+        }
     }
 }
