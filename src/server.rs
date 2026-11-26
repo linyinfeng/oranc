@@ -74,11 +74,7 @@ async fn get_key(
     } = get_layer_info(&registry_ctx, &location)
         .await?
         .ok_or(Error::ReferenceNotFound(location.clone()))?;
-    let blob_stream = registry_ctx
-        .client
-        .pull_blob_stream(&reference, digest.as_str())
-        .await
-        .map_err(Error::OciDistribution)?;
+    let blob_stream = registry::pull_blob_stream(&registry_ctx, &reference, &digest).await?;
     Response::builder()
         .status(StatusCode::OK)
         .header(header::CONTENT_LENGTH, size)

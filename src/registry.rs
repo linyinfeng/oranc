@@ -17,7 +17,7 @@ use futures::{Stream, TryStreamExt};
 use maplit::btreemap;
 use oci_client::{
     Client, Reference,
-    client::{ClientConfig, ClientProtocol, Config, PushBlobStreamChunkedResponse},
+    client::{ClientConfig, ClientProtocol, Config, PushBlobStreamChunkedResponse, SizedStream},
     config::{Architecture, ConfigFile, Os, Rootfs},
     errors::{OciDistributionError, OciErrorCode},
     manifest::{OciDescriptor, OciImageManifest},
@@ -232,6 +232,22 @@ pub async fn get_layer_info(
         content_type: content_type.clone(),
     };
     Ok(Some(info))
+}
+
+/// Pulls the blob with `digest` from `reference` as a verified byte stream.
+pub async fn pull_blob_stream(
+    ctx: &RegistryContext,
+    reference: &Reference,
+    digest: &str,
+) -> Result<SizedStream, Error> {
+    ctx.client
+        .store_auth_if_needed(reference.resolve_registry(), &ctx.auth)
+        .await;
+    let description = format!("pull blob {digest} of {reference:?}");
+    retry(ctx, &description, || async {
+        Ok(ctx.client.pull_blob_stream(reference, digest).await?)
+    })
+    .await
 }
 
 pub async fn put(
