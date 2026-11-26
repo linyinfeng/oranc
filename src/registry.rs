@@ -27,6 +27,8 @@ use sha2::{Digest, Sha256};
 
 pub const LAYER_MEDIA_TYPE: &str = "application/octet-stream";
 pub const CONTENT_TYPE_ANNOTATION: &str = "com.linyinfeng.oranc.content.type";
+/// Size of chunks uploaded in chunked blob uploads, matching `oci_client`.
+pub const BLOB_CHUNK_SIZE: usize = 4 * 1024 * 1024;
 
 pub struct RegistryContext {
     pub options: RegistryOptions,

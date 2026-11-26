@@ -17,9 +17,6 @@ const NIX_DB_DIR: &str = "/nix/var/nix/db";
 static NIX_DB_FILE: Lazy<String> = Lazy::new(|| format!("{}/db.sqlite", NIX_DB_DIR));
 const NAR_CONTENT_TYPE: &str = "application/x-nix-nar";
 const NARINFO_CONTENT_TYPE: &str = "text/x-nix-narinfo";
-/// Size of the chunks of compressed NAR passed from the encoder to the
-/// upload, the same as the chunk size of chunked uploads of `oci_client`.
-const NAR_CHUNK_SIZE: usize = 4 * 1024 * 1024;
 /// Number of chunks of compressed NAR waiting for upload before the encoder
 /// blocks.
 const NAR_CHUNK_CAPACITY: usize = 1;
@@ -303,7 +300,7 @@ async fn push_nar_blob(
     options: &PushOptions,
     path_info: &PathInfo,
 ) -> Result<EncodedNar, Error> {
-    let (writer, chunks) = chunk::channel(NAR_CHUNK_SIZE, NAR_CHUNK_CAPACITY);
+    let (writer, chunks) = chunk::channel(registry::BLOB_CHUNK_SIZE, NAR_CHUNK_CAPACITY);
     let encoding = tokio::task::spawn_blocking({
         let store_path = path_info.path.clone();
         let nar_size = path_info.nar_size;
