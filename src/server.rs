@@ -1,3 +1,4 @@
+use std::io;
 use std::sync::Arc;
 
 use crate::error::Error;
@@ -6,7 +7,6 @@ use crate::registry::LayerInfo;
 use crate::registry::OciLocation;
 use crate::registry::RegistryOptions;
 use crate::registry::get_layer_info;
-use crate::registry::{OciBlob, OciItem};
 use crate::server::auth::Auth;
 
 pub mod auth;
@@ -14,7 +14,6 @@ pub mod upstream;
 
 use axum::Router;
 use axum::body::Body;
-use axum::body::Bytes;
 use axum::extract::State;
 use axum::response::Response;
 use axum::routing::get;
@@ -22,6 +21,7 @@ use axum::routing::head;
 use axum::routing::put;
 use axum_extra::TypedHeader;
 use axum_extra::headers::ContentType;
+use futures::TryStreamExt;
 use http::StatusCode;
 use http::header;
 
@@ -74,11 +74,7 @@ async fn get_key(
     } = get_layer_info(&registry_ctx, &location)
         .await?
         .ok_or(Error::ReferenceNotFound(location.clone()))?;
-    let blob_stream = registry_ctx
-        .client
-        .pull_blob_stream(&reference, digest.as_str())
-        .await
-        .map_err(Error::OciDistribution)?;
+    let blob_stream = registry::pull_blob_stream(&registry_ctx, &reference, &digest).await?;
     Response::builder()
         .status(StatusCode::OK)
         .header(header::CONTENT_LENGTH, size)
@@ -118,16 +114,19 @@ async fn put_key(
     location: OciLocation,
     Auth(auth): Auth,
     content_type: Option<TypedHeader<ContentType>>,
-    body: Bytes,
+    body: Body,
 ) -> Result<Response<Body>, Error> {
     log::info!("put: {location}");
     // on upstream query for put
     let registry_ctx = RegistryOptions::from_server_options(&ctx.options).context(auth);
-    let item = OciItem {
-        content_type: content_type.map(|TypedHeader(typ)| typ.to_string()),
-        blob: OciBlob::from_bytes(body),
-    };
-    registry::put(&registry_ctx, &location, item).await?;
+    let content_type = content_type.map(|TypedHeader(typ)| typ.to_string());
+    registry::put_stream(
+        &registry_ctx,
+        &location,
+        content_type,
+        body.into_data_stream().map_err(io::Error::other),
+    )
+    .await?;
     Response::builder()
         .status(StatusCode::OK)
         .body(OK_RESPONSE_BODY.into()) // s3 client will parse the body

@@ -3,6 +3,7 @@ use std::fmt;
 use std::io;
 use std::sync::Arc;
 
+use crate::chunk;
 use crate::convert::EncodingOptions;
 use crate::server::ServerContext;
 use crate::{
@@ -13,11 +14,11 @@ use axum::RequestPartsExt;
 use axum::extract::{FromRef, FromRequestParts, Path, Query, State};
 use bytes::Bytes;
 use data_encoding::HEXLOWER;
-use futures::{Stream, TryStreamExt};
+use futures::{Stream, StreamExt, TryStreamExt, future, stream};
 use maplit::btreemap;
 use oci_client::{
     Client, Reference,
-    client::{ClientConfig, ClientProtocol, Config, PushBlobStreamChunkedResponse},
+    client::{ClientConfig, ClientProtocol, Config, PushBlobStreamChunkedResponse, SizedStream},
     config::{Architecture, ConfigFile, Os, Rootfs},
     errors::{OciDistributionError, OciErrorCode},
     manifest::{OciDescriptor, OciImageManifest},
@@ -27,6 +28,8 @@ use sha2::{Digest, Sha256};
 
 pub const LAYER_MEDIA_TYPE: &str = "application/octet-stream";
 pub const CONTENT_TYPE_ANNOTATION: &str = "com.linyinfeng.oranc.content.type";
+/// Size of chunks uploaded in chunked blob uploads, matching `oci_client`.
+pub const BLOB_CHUNK_SIZE: usize = 4 * 1024 * 1024;
 
 pub struct RegistryContext {
     pub options: RegistryOptions,
@@ -232,6 +235,22 @@ pub async fn get_layer_info(
     Ok(Some(info))
 }
 
+/// Pulls the blob with `digest` from `reference` as a verified byte stream.
+pub async fn pull_blob_stream(
+    ctx: &RegistryContext,
+    reference: &Reference,
+    digest: &str,
+) -> Result<SizedStream, Error> {
+    ctx.client
+        .store_auth_if_needed(reference.resolve_registry(), &ctx.auth)
+        .await;
+    let description = format!("pull blob {digest} of {reference:?}");
+    retry(ctx, &description, || async {
+        Ok(ctx.client.pull_blob_stream(reference, digest).await?)
+    })
+    .await
+}
+
 pub async fn put(
     ctx: &RegistryContext,
     location: &OciLocation,
@@ -249,6 +268,57 @@ pub async fn put(
         }
         push_image(ctx, &reference, &blob, &config, &image_manifest).await?;
         Ok(())
+    })
+    .await
+}
+
+/// Pushes the blob streamed by `data` to `location` as a single layer image.
+///
+/// Empty and smaller-than-one-chunk payloads are uploaded via [`put`] so that
+/// 0-byte objects are supported and transient upload failures are retried.
+pub async fn put_stream(
+    ctx: &RegistryContext,
+    location: &OciLocation,
+    content_type: Option<String>,
+    data: impl Stream<Item = io::Result<Bytes>> + Send + 'static,
+) -> Result<(), Error> {
+    let max_retry = ctx.options.max_retry;
+    if max_retry < 1 {
+        return Err(Error::InvalidMaxRetry(max_retry));
+    }
+    if ctx.options.dry_run {
+        log::debug!("dry run, skipped");
+        std::pin::pin!(data)
+            .try_for_each(|_| future::ok(()))
+            .await?;
+        return Ok(());
+    }
+
+    let mut chunks = Box::pin(chunk::rechunk(data, BLOB_CHUNK_SIZE));
+    let first_chunk = match chunks.try_next().await? {
+        Some(chunk) if chunk.len() == BLOB_CHUNK_SIZE => chunk,
+        small_or_empty => {
+            let item = OciItem {
+                content_type,
+                blob: OciBlob::from_bytes(small_or_empty.unwrap_or_default()),
+            };
+            return put(ctx, location, item).await;
+        }
+    };
+
+    let full_stream = stream::once(future::ok(first_chunk)).chain(chunks);
+    let uploaded =
+        push_blob_stream(ctx, &location.registry, &location.repository, full_stream).await?;
+
+    let description = format!("push manifest of {location}");
+    retry(ctx, &description, || {
+        push_manifest(
+            ctx,
+            location,
+            content_type.clone(),
+            &uploaded.blob_digest,
+            uploaded.size,
+        )
     })
     .await
 }

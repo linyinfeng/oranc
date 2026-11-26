@@ -100,6 +100,7 @@ jobs:
           - "coreutils"
           - "nixosTests.simple-container.containers.noprofile.system.build.toplevel"
         os: [ubuntu-latest, ubuntu-24.04-arm]
+        push-method: [oranc-push, nix-copy]
     runs-on: ${{ matrix.os }}
     needs: push-docker-manifest
     env:
@@ -110,6 +111,7 @@ jobs:
       ORANC: "localhost:5001"
       REPOSITORY: "test-user/oranc-cache"
       STORE_URL: "http://localhost:5001/registry:5000/test-user/oranc-cache"
+      S3_STORE_URL: "s3://oranc-cache?endpoint=http://localhost:5001/registry:5000/test-user&scheme=http"
     services:
       oranc:
         image: ghcr.io/linyinfeng/oranc:${{ github.sha }}
@@ -144,12 +146,14 @@ jobs:
           echo "secret key for test: $(cat /tmp/nix-key-pair/secret)"
           echo "public key for test: $(cat /tmp/nix-key-pair/public)"
       - name: Install oranc
+        if: ${{ matrix.push-method == 'oranc-push' }}
         run: |
           nix build .#oranc \
             --extra-substituters "$CACHIX_SUBSTITUTER" \
             --extra-trusted-public-keys "$CACHIX_PUBLIC_KEY" \
             --out-link /tmp/oranc
       - name: Initialize registry
+        if: ${{ matrix.push-method == 'oranc-push' }}
         run: |
           /tmp/oranc/bin/oranc \
             push \
@@ -170,7 +174,8 @@ jobs:
           echo "derived: $(cat /tmp/derived | wc -l)"
           echo "derived closure: $(cat /tmp/derived_closure | wc -l)"
           echo "store paths: $(cat /tmp/store_paths | wc -l)"
-      - name: Push to cache
+      - name: Push to cache (oranc push)
+        if: ${{ matrix.push-method == 'oranc-push' }}
         run: |
           export ORANC_SIGNING_KEY="$(cat /tmp/nix-key-pair/secret)"
 
@@ -188,6 +193,22 @@ jobs:
             --repository "$REPOSITORY" \
             --excluded-signing-key-pattern '^$' \
             --already-signed
+      - name: Push to cache (nix copy)
+        if: ${{ matrix.push-method == 'nix-copy' }}
+        env:
+          AWS_SECRET_ACCESS_KEY: "_"
+          AWS_EC2_METADATA_DISABLED: "true"
+        run: |
+          # TODO: remove the multiple-of-3 byte length constraint once src/server/auth.rs URL-decodes '=' (%3D) in SigV4 Credential
+          export AWS_ACCESS_KEY_ID="$(printf '%s' 'testuser:pass12' | base64 --wrap 0)"
+
+          cat /tmp/derived_closure | \
+            xargs nix store sign --key-file /tmp/nix-key-pair/secret
+
+          cat /tmp/derived | \
+            xargs nix copy --to "$S3_STORE_URL"
+
+          curl -fv "$STORE_URL/nix-cache-info"
       - name: Verify remote store
         run: |
           cat /tmp/derived_closure | \
